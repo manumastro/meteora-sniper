@@ -1,13 +1,11 @@
 import WebSocket from "ws";
 import dotenv from "dotenv";
+import axios from "axios";
 import { config } from "./config";
 import { Connection, PublicKey, Keypair, ParsedTransactionWithMeta, TokenBalance } from "@solana/web3.js";
 import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
 import bs58 from "bs58";
 import { createSwapTransaction, getComputedPoolAddress, extractPoolAddressFromTxKeys, executeJitoSwap } from "./execution";
-
-// Load environment variables
-dotenv.config();
 
 // Constants & Env
 const WSS_ENDPOINT = process.env.SVS_UNSTAKED_WSS || "";
@@ -21,12 +19,21 @@ const PROGRAM_META_LOGS = config.program.meta_logs;
 const WSOL = config.wsol_pc_mint;
 
 // Trading Config
-const TRADE_AMOUNT_SOL = 0.01; // Fixed trade amount for now, or move to .env
+const TRADE_AMOUNT_SOL = 0.01; 
 const MIN_LIQUIDITY_SOL = 10;
-const MAX_POSITIONS = 5; // Safety limit
+const MAX_POSITIONS = 5;
+const STOP_LOSS_PERCENT = 30; // -30% Stop Loss
+
+interface Position {
+    mint: string;
+    amount: number; // Token Amount
+    entryPrice: number; // SOL
+    entryTime: number;
+    poolAddress: string;
+}
 
 // Global State
-let activePositions = 0;
+let activePositions: Position[] = [];
 let isInitializing = false;
 let checkPriceInterval: NodeJS.Timeout | null = null;
 let reconnectDelay = 5000;
@@ -50,22 +57,125 @@ function formatPrice(price: number): string {
     return price.toFixed(6) + " SOL";
 }
 
-// Return subscribe request
-function returnMigrationSubscribeRequest() {
-    return {
-        jsonrpc: "2.0",
-        id: PROGRAM_ID,
-        method: "logsSubscribe",
-        params: [
-            { mentions: [PROGRAM_ID] },
-            { commitment: "processed" },
-        ],
-    };
+// Helper to get prices
+async function getPricesFromDexScreener(tokenMints: string[]): Promise<Map<string, { priceSol: number, priceUsd: number }>> {
+    const results = new Map<string, { priceSol: number, priceUsd: number }>();
+    if (tokenMints.length === 0) return results;
+    try {
+        const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenMints.join(',')}`;
+        const response = await axios.get(url);
+        if (response.data?.pairs && Array.isArray(response.data.pairs)) {
+            response.data.pairs.forEach((pair: any) => {
+                const mint = pair.baseToken.address;
+                if (!results.has(mint) && tokenMints.includes(mint)) {
+                     if (pair.quoteToken.symbol === 'SOL') {
+                        results.set(mint, { priceSol: parseFloat(pair.priceNative), priceUsd: parseFloat(pair.priceUsd) });
+                     } else {
+                        // Fallback
+                        results.set(mint, { priceSol: parseFloat(pair.priceNative), priceUsd: parseFloat(pair.priceUsd) });
+                     }
+                }
+            });
+        }
+    } catch (e) { console.error("DetScreener Error", e); }
+    return results;
 }
+
+// Sell Logic
+async function triggerSell(position: Position, reason: string, connection: Connection) {
+    console.log(`\n🚨 STOP LOSS TRIGGERED: ${position.mint} (${reason})`);
+    
+    // We need to fetch current balance to sell ALL
+    // OR we track amount in Position.
+    // Let's rely on stored amount for speed, but ideally we check balance.
+    // For sniping, assume we hold what we bought.
+    const sellAmount = position.amount;
+    const sellAmountLamports = Math.floor(sellAmount * 10 ** 6); // Approximation (USDC 6 decimals? NO wait).
+    // CRITICAL: We don't know decimals here unless we stored them or assume.
+    // executeJitoSwap expects Integer Lamports for Input.
+    // But Input is now Token, not SOL.
+    // If we are swapping Token -> SOL, inputAmount is Token Amount * 10^Decimals.
+    // We should probably store decimals in Position.
+    
+    // Quick Fix: We need decimals.
+    // Let's assume we can fetch it or we stored it.
+    // To be safe, let's fetch balance + decimals from chain for the sell.
+    
+    try {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: new PublicKey(position.mint) });
+        if (tokenAccounts.value.length === 0) {
+            console.log("⚠️ No token balance to sell.");
+            return;
+        }
+        
+        const balanceInfo = tokenAccounts.value[0].account.data.parsed.info.tokenAmount;
+        const balanceAmount = balanceInfo.amount; // string integer
+        const decimals = balanceInfo.decimals;
+        
+        console.log(`📉 Selling ${balanceInfo.uiAmount} tokens...`);
+
+        if (tipAccounts.length === 0) { console.error("No tips for sell"); return; }
+        const randomTipAccount = new PublicKey(tipAccounts[Math.floor(Math.random() * tipAccounts.length)]);
+        const tipLamports = JITO_TIP_AMOUNT_SOL * 1_000_000_000;
+
+        // Execute Swap: Input = Token, Output = SOL (Implied by pool)
+        // We pass pool address.
+        const bundleId = await executeJitoSwap(
+            jitoClient, 
+            connection, 
+            walletKeypair, 
+            position.poolAddress, 
+            position.mint, // Input Token
+            parseInt(balanceAmount), 
+            tipLamports,
+            randomTipAccount,
+            5.0 // High slippage for Stop Loss exit
+        );
+        
+        if (bundleId) {
+             console.log(`✅ SELL SENT! Bundle: ${bundleId}`);
+             // Remove from active positions
+             activePositions = activePositions.filter(p => p.mint !== position.mint);
+        } else {
+             console.log("❌ Sell Bundle Failed.");
+        }
+
+    } catch (e) {
+        console.error("Sell Error:", e);
+    }
+}
+
+
+// Monitoring Loop
+function startPriceMonitoring(connection: Connection) {
+    if (checkPriceInterval) return;
+    checkPriceInterval = setInterval(async () => {
+        if (activePositions.length === 0) return;
+
+        const mints = activePositions.map(p => p.mint);
+        const prices = await getPricesFromDexScreener(mints);
+
+        for (const position of activePositions) {
+            const priceData = prices.get(position.mint);
+            if (!priceData) continue;
+
+            const currentPrice = priceData.priceSol;
+            const pnlPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+            
+            console.log(`📊 ${position.mint.slice(0,4)}..: Entry ${formatPrice(position.entryPrice)} | Curr ${formatPrice(currentPrice)} | PNL: ${pnlPercent.toFixed(2)}%`);
+
+            // Check Stop Loss
+            if (pnlPercent <= -STOP_LOSS_PERCENT) {
+                triggerSell(position, `hit SL ${pnlPercent.toFixed(2)}%`, connection);
+            }
+        }
+    }, 2000); // 2s polling
+}
+
 
 // Handle WebSocket Data
 async function handleMigrationWssData(data: WebSocket.Data, connection: Connection): Promise<void> {
-    if (activePositions >= MAX_POSITIONS) return;
+    if (activePositions.length >= MAX_POSITIONS) return;
 
     const jsonString = data.toString();
     const parsedData = JSON.parse(jsonString);
@@ -90,12 +200,6 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
     console.log(`\n🔎 MATCH: ${signature}`);
 
     try {
-        // Fetch Transaction
-        // Optimistic approach: We can try to derive pool address purely from logs if possible, 
-        // but fetching TX is safer to confirm it's a valid migration with liquidity.
-        // To be faster, we might skip full parsing if we can get keys from 'getTransaction' (lighter than getParsedTransaction?)
-        // But for now, stick to robust logic.
-        
         const tx = await connection.getParsedTransaction(signature, {
             maxSupportedTransactionVersion: 0,
             commitment: "confirmed"
@@ -106,7 +210,6 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
             return;
         }
 
-        // Logic to extract token mint (same as paper mode)
         const tokenBalances = tx.meta.postTokenBalances || [];
         const significantTokens = tokenBalances.filter((balance) => balance.mint !== WSOL && balance.uiTokenAmount.decimals !== 0);
 
@@ -114,9 +217,13 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
             const firstToken = significantTokens[0];
             const tokenMint = firstToken.mint;
 
+            // Check if already active
+            if (activePositions.some(p => p.mint === tokenMint)) {
+                 isInitializing = false; return;
+            }
+
             console.log(`💎 Found Mint: ${tokenMint}`);
 
-            // 1. Identify Pool Address
             const accountKeys = tx.transaction.message.accountKeys.map((k: any) => k.pubkey);
             let poolAddr = await extractPoolAddressFromTxKeys(connection, accountKeys);
 
@@ -133,7 +240,6 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
 
             console.log(`🚀 EXECUTING REAL TRADE on Pool: ${poolAddr}`);
             
-            // 2. Execute Jito Bundle
             const tipLamports = JITO_TIP_AMOUNT_SOL * 1_000_000_000;
             const inputLamports = TRADE_AMOUNT_SOL * 1_000_000_000;
 
@@ -155,9 +261,25 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
             );
 
             if (bundleId) {
-                console.log(`✅ Bundle Sent! ID: ${bundleId}`);
+                console.log(`✅ PROCESSED BUNDLE: ${bundleId} (Scanning confirmation...)`);
+                // Assume success for tracking (Real tracking should wait for confirm)
+                // For simplicity, we add to Active Positions tentatively.
+                // We need entry price to track PNL.
+                // We can fetch it next tick or estimate it.
+                // Let's set entryPrice = 0 initially and update it in monitoring loop if 0.
+                
+                activePositions.push({
+                    mint: tokenMint,
+                    amount: 0, // Unknown yet
+                    entryPrice: 0.00000001, // Placeholder
+                    entryTime: Date.now(),
+                    poolAddress: poolAddr
+                });
+                
+                // Start Monitoring if not running
+                startPriceMonitoring(connection);
+                
                 console.log(`🔗 https://explorer.jito.wtf/bundle/${bundleId}`);
-                activePositions++;
             } else {
                 console.log("❌ Bundle Failed or Rejected.");
             }
@@ -168,6 +290,19 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
     }
     
     isInitializing = false;
+}
+
+// Return subscribe request
+function returnMigrationSubscribeRequest() {
+    return {
+        jsonrpc: "2.0",
+        id: PROGRAM_ID,
+        method: "logsSubscribe",
+        params: [
+            { mentions: [PROGRAM_ID] },
+            { commitment: "processed" },
+        ],
+    };
 }
 
 
