@@ -21,7 +21,7 @@ const WSOL = config.wsol_pc_mint;
 // Trading Config
 const TRADE_AMOUNT_SOL = 0.01; 
 const MIN_LIQUIDITY_SOL = 10;
-const MAX_POSITIONS = 5;
+const MAX_POSITIONS = 1;
 const STOP_LOSS_PERCENT = 30; // -30% Stop Loss
 
 interface Position {
@@ -38,6 +38,7 @@ let isInitializing = false;
 let checkPriceInterval: NodeJS.Timeout | null = null;
 let reconnectDelay = 5000;
 let tipAccounts: string[] = [];
+let jitoClient: any;
 
 // Setup Wallet
 if (!PRIVATE_KEY_B58) {
@@ -46,11 +47,7 @@ if (!PRIVATE_KEY_B58) {
 }
 const walletKeypair = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY_B58));
 
-// Setup Jito Client
-const jitoClient = searcherClient(
-    JITO_BLOCK_ENGINE_URL,
-    walletKeypair // Authorization Keypair (using same as trade wallet for simplicity)
-);
+
 
 // Constants for Price Calc
 function formatPrice(price: number): string {
@@ -85,22 +82,7 @@ async function getPricesFromDexScreener(tokenMints: string[]): Promise<Map<strin
 async function triggerSell(position: Position, reason: string, connection: Connection) {
     console.log(`\n🚨 STOP LOSS TRIGGERED: ${position.mint} (${reason})`);
     
-    // We need to fetch current balance to sell ALL
-    // OR we track amount in Position.
-    // Let's rely on stored amount for speed, but ideally we check balance.
-    // For sniping, assume we hold what we bought.
-    const sellAmount = position.amount;
-    const sellAmountLamports = Math.floor(sellAmount * 10 ** 6); // Approximation (USDC 6 decimals? NO wait).
-    // CRITICAL: We don't know decimals here unless we stored them or assume.
-    // executeJitoSwap expects Integer Lamports for Input.
-    // But Input is now Token, not SOL.
-    // If we are swapping Token -> SOL, inputAmount is Token Amount * 10^Decimals.
-    // We should probably store decimals in Position.
-    
-    // Quick Fix: We need decimals.
-    // Let's assume we can fetch it or we stored it.
-    // To be safe, let's fetch balance + decimals from chain for the sell.
-    
+    // For selling, we fetch the exact wallet balance to ensure we sell everything (no dust left)
     try {
         const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: new PublicKey(position.mint) });
         if (tokenAccounts.value.length === 0) {
@@ -166,7 +148,9 @@ function startPriceMonitoring(connection: Connection) {
 
             // Check Stop Loss
             if (pnlPercent <= -STOP_LOSS_PERCENT) {
-                triggerSell(position, `hit SL ${pnlPercent.toFixed(2)}%`, connection);
+                // triggerSell(position, `hit SL ${pnlPercent.toFixed(2)}%`, connection);
+                // per ora stampo solo il log
+                console.log(`🚨 STOP LOSS TRIGGERED: ${pnlPercent.toFixed(2)}% <= ${STOP_LOSS_PERCENT}%`);
             }
         }
     }, 2000); // 2s polling
@@ -279,7 +263,10 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
                 // Start Monitoring if not running
                 startPriceMonitoring(connection);
                 
-                console.log(`🔗 https://explorer.jito.wtf/bundle/${bundleId}`);
+                console.log(`🔗 Jito: https://explorer.jito.wtf/bundle/${bundleId}`);
+                console.log(`📈 GMGN: https://gmgn.ai/sol/token/${tokenMint}`);
+                console.log(`🦅 DexScreener: https://dexscreener.com/solana/${tokenMint}`);
+                console.log(`⚡ Photon: https://photon-sol.tinyastro.io/en/lp/${poolAddr}`);
             } else {
                 console.log("❌ Bundle Failed or Rejected.");
             }
@@ -306,6 +293,48 @@ function returnMigrationSubscribeRequest() {
 }
 
 
+// Jito Block Engines
+const BLOCK_ENGINE_URLS = [
+    "amsterdam.mainnet.block-engine.jito.wtf",
+    "frankfurt.mainnet.block-engine.jito.wtf",
+    "ny.mainnet.block-engine.jito.wtf",
+    "tokyo.mainnet.block-engine.jito.wtf",
+];
+
+async function getLowestLatencyBlockEngine(): Promise<string> {
+    console.log("⚡ Testing Jito Block Engine Latency...");
+    let bestUrl = BLOCK_ENGINE_URLS[0];
+    let minLatency = Infinity;
+
+    for (const url of BLOCK_ENGINE_URLS) {
+        const start = Date.now();
+        try {
+            // Simple TCP connect check or HTTP ping
+            // Since we can't easily do TCP ping in Node without net/tls, we'll try an HTTP HEAD/GET request to /api/v1/bundles
+            // The Jito URLs are for gRPC but usually have an HTTP health check or we can just try to connect.
+            // Let's use axios to hit the generic endpoint or just the domain 
+            // Note: Jito Engines are gRPC. 'https://' + url + '/api/v1/bundles' might be a REST proxy or fail.
+            // Safe bet: searcherClient simply connects. We can try to instantiate and call getTipAccounts.
+            
+            const tempClient = searcherClient(url, undefined); // No auth needed for tip accounts
+            await tempClient.getTipAccounts();
+            const latency = Date.now() - start;
+            
+            console.log(`   - ${url}: ${latency}ms`);
+            if (latency < minLatency) {
+                minLatency = latency;
+                bestUrl = url;
+            }
+        } catch (e) {
+            console.log(`   - ${url}: TIMEOUT/ERROR`);
+        }
+    }
+    console.log(`🏆 Winner: ${bestUrl} (${minLatency}ms)`);
+    return bestUrl;
+}
+
+// ... existing code ...
+
 // Main Function
 async function startSniper() {
     if (!WSS_ENDPOINT || !RPC_ENDPOINT) {
@@ -316,7 +345,17 @@ async function startSniper() {
     const connection = new Connection(RPC_ENDPOINT, "confirmed");
     console.log("🔥 METEORA SNIPER - JITO LIVE MODE 🔥");
     console.log(`Wallet: ${walletKeypair.publicKey.toBase58()}`);
-    console.log(`Jito Engine: ${JITO_BLOCK_ENGINE_URL}`);
+    
+    // Select best block engine
+    const selectedBlockEngineUrl = await getLowestLatencyBlockEngine();
+    console.log(`Jito Engine: ${selectedBlockEngineUrl}`);
+
+    // Init Client with best URL
+    const jitoClient = searcherClient(selectedBlockEngineUrl, walletKeypair);
+
+    // Default to lower tip for testing if not set
+    const tipAmount = process.env.JITO_TIP_AMOUNT ? parseFloat(process.env.JITO_TIP_AMOUNT) : 0.0001;
+    console.log(`Tip Amount: ${tipAmount} SOL`);
     
     try {
         const tips = await jitoClient.getTipAccounts();
@@ -334,8 +373,6 @@ async function startSniper() {
         console.error("❌ Failed to fetch Jito Tip Accounts:", e);
         return;
     }
-
-    console.log(`Tip Amount: ${JITO_TIP_AMOUNT_SOL} SOL`);
     
     let ws = new WebSocket(WSS_ENDPOINT);
     
