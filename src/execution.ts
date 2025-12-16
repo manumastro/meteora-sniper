@@ -1,7 +1,9 @@
-import { Connection, PublicKey, TransactionInstruction, Keypair, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram, TransactionInstruction, Keypair, Transaction, VersionedTransaction, TransactionMessage } from "@solana/web3.js";
 import { CpAmm, derivePoolAddress } from '@meteora-ag/cp-amm-sdk';
 import { BN } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID, getMint } from "@solana/spl-token";
+import { SearcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
+import { Bundle } from "jito-ts/dist/sdk/block-engine/types";
 
 // Standard Config (Index 0) found on mainnet
 const STANDARD_CONFIG_ADDRESS = new PublicKey("8CNy9goNQNLM4wtgRw528tUQGMKD3vSuFRZY2gLGLLvF");
@@ -165,5 +167,85 @@ export async function testPoolConnection(connection: Connection, poolAddress: st
     } catch (e: any) {
         console.error("❌ Failed to test pool connection:", e.message);
         return false;
+    }
+}
+
+/**
+ * Executes a Jito Bundle Swap (Swap + Tip)
+ */
+export async function executeJitoSwap(
+    searcherClient: SearcherClient,
+    connection: Connection,
+    payerKeypair: Keypair,
+    poolAddress: string,
+    inputTokenMint: string,
+    inputAmountLamports: number,
+    tipLamports: number,
+    tipAccount: PublicKey,
+    slippagePercent: number = 1.0
+): Promise<string | null> {
+    try {
+        // 1. Get Swap Transaction (Instructions)
+        const swapResult = await createSwapTransaction(
+            connection,
+            payerKeypair.publicKey,
+            poolAddress,
+            inputTokenMint,
+            inputAmountLamports,
+            slippagePercent
+        );
+
+        if (!swapResult) return null;
+
+        const { transaction: swapTx } = swapResult;
+
+        // 2. Create Tip Instruction
+        const tipIx = SystemProgram.transfer({
+            fromPubkey: payerKeypair.publicKey,
+            toPubkey: tipAccount,
+            lamports: tipLamports,
+        });
+
+        // 3. Bundle Construction
+        const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+        
+        // Combine all instructions
+        const instructions = [...swapTx.instructions, tipIx];
+
+        // Create Versioned Transaction (Preferred/Required for Jito Bundles)
+        const messageV0 = new TransactionMessage({
+            payerKey: payerKeypair.publicKey,
+            recentBlockhash: latestBlockhash.blockhash,
+            instructions,
+        }).compileToV0Message();
+        
+        const vTx = new VersionedTransaction(messageV0);
+        vTx.sign([payerKeypair]);
+
+        const bundle = new Bundle([vTx], 5);
+
+        // 4. Send Bundle
+        const result = await searcherClient.sendBundle(bundle);
+        
+        // Check "in_progress" or similar logic? 
+        // Jito-ts returns a Result-like object or just the ID string depending on version?
+        // The lint error said: Result<string, SearcherClientError>
+        // We assume it has a .value property on success if it's a Rust-style Result.
+        // Actually earlier it said: Type '{ ok: true; value: string; }' is not assignable to type 'string'.
+        // So the object is { ok: boolean, value?: string, error?: any }
+        
+        // @ts-ignore
+        if (result.value) {
+             // @ts-ignore
+            return result.value;
+        } else {
+             // @ts-ignore
+            console.error("❌ Bundle Error:", result);
+            return null;
+        }
+
+    } catch (e: any) {
+        console.error("❌ Error executing Jito Swap:", e.message);
+        return null;
     }
 }
