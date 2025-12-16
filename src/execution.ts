@@ -1,7 +1,7 @@
 import { Connection, PublicKey, TransactionInstruction, Keypair, Transaction } from "@solana/web3.js";
 import { CpAmm, derivePoolAddress } from '@meteora-ag/cp-amm-sdk';
 import { BN } from "@coral-xyz/anchor";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getMint } from "@solana/spl-token";
 
 // Standard Config (Index 0) found on mainnet
 const STANDARD_CONFIG_ADDRESS = new PublicKey("8CNy9goNQNLM4wtgRw528tUQGMKD3vSuFRZY2gLGLLvF");
@@ -82,7 +82,12 @@ export async function createSwapTransaction(
         const isInputTokenA = poolState.tokenAMint.equals(inputMint);
         const outputMint = isInputTokenA ? poolState.tokenBMint : poolState.tokenAMint;
 
-        // 4. Get Quote for Minimum Output (Slippage)
+    // 4. Get Decimals (Critical for accurate Quote)
+        // We fetch mint info to ensure we use the correct decimals (e.g. 6 for USDC, 9 for SOL, others vary)
+        const mintA = await getMint(connection, poolState.tokenAMint);
+        const mintB = await getMint(connection, poolState.tokenBMint);
+
+        // 5. Get Quote for Minimum Output (Slippage)
         // The SDK requires a quote to get minAmountOut
         // We need 'currentSlot' and 'currentTime' for getQuote
         const currentSlot = await connection.getSlot();
@@ -100,13 +105,8 @@ export async function createSwapTransaction(
             poolState: poolState,
             currentTime: blockTime,
             currentSlot: currentSlot,
-            tokenADecimal: 9, // Needs to be correct! Usually SOL is 9. We should fetch decimals if unknown.
-            tokenBDecimal: 6, // Guessing USDC is 6. 
-            // FIXME: Ideally we fetch mint info to get decimals. 
-            // For now assuming: If SOL is involved it's 9. If USDC is involved it's 6.
-            // If unknown token vs SOL, we assume unknown is 6? This is risky. 
-            // Let's rely on standard decimals or fetch them.
-            // For sniping, usually we trade SOL (9) -> Token (6 or 9).
+            tokenADecimal: mintA.decimals,
+            tokenBDecimal: mintB.decimals,
         });
 
         console.log(`\n📊 Quote: ${amountIn.toString()} in -> ${quote.swapOutAmount.toString()} out`);
