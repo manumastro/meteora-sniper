@@ -5,7 +5,7 @@ import { config } from "./config";
 import { Connection, PublicKey, Keypair, ParsedTransactionWithMeta, TokenBalance } from "@solana/web3.js";
 import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
 import bs58 from "bs58";
-import { createSwapTransaction, getComputedPoolAddress, extractPoolAddressFromTxKeys, executeJitoSwap } from "./execution";
+import { getComputedPoolAddress, extractPoolAddressFromTxKeys, executeJitoSwap } from "./execution";
 
 // Constants & Env
 const WSS_ENDPOINT = process.env.SVS_UNSTAKED_WSS || "";
