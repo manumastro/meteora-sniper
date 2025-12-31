@@ -343,15 +343,19 @@ async function startSniper() {
     }
 
     const connection = new Connection(RPC_ENDPOINT, "confirmed");
+    const keepers = config.migration_keepers;
+
     console.log("🔥 METEORA SNIPER - JITO LIVE MODE 🔥");
     console.log(`Wallet: ${walletKeypair.publicKey.toBase58()}`);
+    console.log(`👀 Monitoring ${keepers.length} migration keepers:`);
+    keepers.forEach((k, i) => console.log(`   Keeper ${i + 1}: ${k}`));
     
     // Select best block engine
     const selectedBlockEngineUrl = await getLowestLatencyBlockEngine();
     console.log(`Jito Engine: ${selectedBlockEngineUrl}`);
 
     // Init Client with best URL
-    const jitoClient = searcherClient(selectedBlockEngineUrl, walletKeypair);
+    jitoClient = searcherClient(selectedBlockEngineUrl, walletKeypair);
 
     // Default to lower tip for testing if not set
     const tipAmount = process.env.JITO_TIP_AMOUNT ? parseFloat(process.env.JITO_TIP_AMOUNT) : 0.0001;
@@ -373,31 +377,45 @@ async function startSniper() {
         console.error("❌ Failed to fetch Jito Tip Accounts:", e);
         return;
     }
-    
-    let ws = new WebSocket(WSS_ENDPOINT);
-    
-    ws.on("open", () => {
-        console.log("✅ WSS Connected.");
-        reconnectDelay = 5000;
-        ws.send(JSON.stringify(returnMigrationSubscribeRequest()));
-    });
 
-    ws.on("message", (data) => handleMigrationWssData(data, connection));
+    // Create subscription for each keeper
+    keepers.forEach((keeperAddress, index) => {
+        const ws = new WebSocket(WSS_ENDPOINT);
+        
+        const subscribeRequest = {
+            jsonrpc: "2.0",
+            id: `keeper-${index + 1}`,
+            method: "logsSubscribe",
+            params: [
+                { mentions: [keeperAddress] },
+                { commitment: "processed" },
+            ],
+        };
 
-    ws.on("close", () => {
-        console.log(`⚠️ WSS Closed. Reconnecting in ${reconnectDelay}ms...`);
-        setTimeout(startSniper, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, 60000);
-    });
+        ws.on("open", () => {
+            console.log(`✅ Keeper ${index + 1} subscription active`);
+            reconnectDelay = 5000;
+            ws.send(JSON.stringify(subscribeRequest));
+        });
 
-    ws.on("error", (err: Error) => {
-        if (err.message.includes("429")) {
-            console.log("⚠️ 429 Rate Limit. Backing off 15s.");
-            reconnectDelay = 15000;
-        } else {
-            console.error("❌ WSS Error:", err.message);
-        }
+        ws.on("message", (data) => handleMigrationWssData(data, connection));
+
+        ws.on("close", () => {
+            console.log(`⚠️ Keeper ${index + 1} WSS Closed. Reconnecting in ${reconnectDelay}ms...`);
+            setTimeout(startSniper, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 60000);
+        });
+
+        ws.on("error", (err: Error) => {
+            if (err.message.includes("429")) {
+                console.log("⚠️ 429 Rate Limit. Backing off 15s.");
+                reconnectDelay = 15000;
+            } else {
+                console.error(`❌ Keeper ${index + 1} WSS Error:`, err.message);
+            }
+        });
     });
 }
 
 startSniper();
+

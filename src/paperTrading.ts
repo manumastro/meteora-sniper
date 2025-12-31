@@ -44,19 +44,20 @@ let closedTrades: PaperTrade[] = [];
 let isInitializing = false;
 let checkPriceInterval: NodeJS.Timeout | null = null;
 
-function formatPrice(price: number): string {
-    if (!price || price === 0) return "0.00 SOL";
-    if (price >= 0.01) return price.toFixed(6) + " SOL";
+function formatPriceSol(price: number): string {
+    if (!price || price === 0) return "0.00";
+    if (price >= 0.01) return price.toFixed(4);
 
+    // GMGN-style subscript format: 0.0₅654 means 0.00000654
     const str = price.toFixed(20);
-    const match = str.match(/^0\.(0+)([^0].*)/);
+    const match = str.match(/^0\.(0+)([1-9]\d*)/);
 
-    if (!match) return price.toExponential(4) + " SOL";
+    if (!match) return price.toExponential(2);
 
     const zerosCount = match[1].length;
     const significantDigits = match[2].substring(0, 4);
 
-    if (zerosCount <= 2) return price.toFixed(6) + " SOL";
+    if (zerosCount <= 2) return price.toFixed(zerosCount + 4);
 
     const subscripts: { [key: string]: string } = {
         '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
@@ -64,7 +65,14 @@ function formatPrice(price: number): string {
     };
     const zerosSubscript = zerosCount.toString().split('').map(char => subscripts[char]).join('');
 
-    return `0.0${zerosSubscript}${significantDigits} SOL`;
+    return `0.0${zerosSubscript}${significantDigits}`;
+}
+
+function formatPriceUsd(price: number): string {
+    if (!price || price === 0) return "$0.00";
+    if (price >= 1) return "$" + price.toFixed(2);
+    if (price >= 0.01) return "$" + price.toFixed(4);
+    return "$" + price.toFixed(6);
 }
 
 function displayTradeStatus() {
@@ -73,16 +81,19 @@ function displayTradeStatus() {
     const now = new Date();
 
     const activePnL = activeTrades.reduce((acc, t) => acc + t.profitLossSol, 0);
+    const activePnLUsd = activeTrades.reduce((acc, t) => acc + t.profitLossUsd, 0);
     const realizedPnL = closedTrades.reduce((acc, t) => acc + t.profitLossSol, 0);
+    const realizedPnLUsd = closedTrades.reduce((acc, t) => acc + t.profitLossUsd, 0);
     const totalPnL = activePnL + realizedPnL;
+    const totalPnLUsd = activePnLUsd + realizedPnLUsd;
 
-    console.log("=".repeat(130));
+    console.log("=".repeat(180));
     console.log(`🎮 PAPER TRADING DASHBOARD - ${now.toLocaleTimeString()}`);
     console.log(`Active Positions: ${activeTrades.length}/${MAX_POSITIONS}`);
-    console.log(`Active Unrealized PNL: ${activePnL >= 0 ? '+' : ''}${activePnL.toFixed(4)} SOL`);
-    console.log(`Total Realized PNL:    ${realizedPnL >= 0 ? '+' : ''}${realizedPnL.toFixed(4)} SOL`);
-    console.log(`GRAND TOTAL PNL:       ${totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(4)} SOL`);
-    console.log("=".repeat(130));
+    console.log(`Active Unrealized PNL: ${activePnL >= 0 ? '+' : ''}${activePnL.toFixed(4)} SOL (${activePnLUsd >= 0 ? '+' : ''}${formatPriceUsd(activePnLUsd)})`);
+    console.log(`Total Realized PNL:    ${realizedPnL >= 0 ? '+' : ''}${realizedPnL.toFixed(4)} SOL (${realizedPnLUsd >= 0 ? '+' : ''}${formatPriceUsd(realizedPnLUsd)})`);
+    console.log(`GRAND TOTAL PNL:       ${totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(4)} SOL (${totalPnLUsd >= 0 ? '+' : ''}${formatPriceUsd(totalPnLUsd)})`);
+    console.log("=".repeat(180));
 
     if (activeTrades.length === 0 && closedTrades.length === 0) {
         console.log(`\n⏳ Waiting for token migrations...`);
@@ -91,37 +102,37 @@ function displayTradeStatus() {
 
     if (activeTrades.length > 0) {
         console.log("\n🚀 ACTIVE TRADES:");
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
         console.log(
-            "| GMGN Link (Click to Open)                                        | Time  | Entry (SOL)  | Curr (SOL)   | PNL (%)   | PNL (SOL)"
+            "| GMGN Link (Click to Open)                                        | Entry    | Age    | Entry SOL    | Entry USD  | Curr SOL     | Curr USD   | PNL (%)   | PNL (SOL)"
         );
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
 
         activeTrades.forEach(trade => {
             const elapsedTime = Math.floor((now.getTime() - trade.entryTime.getTime()) / 1000);
             const minutes = Math.floor(elapsedTime / 60);
             const seconds = elapsedTime % 60;
             const timeStr = `${minutes}m${seconds}s`;
+            const entryTimeStr = trade.entryTime.toLocaleTimeString('it-IT', { hour12: false });
 
             const plColor = trade.profitLossPercent >= 0 ? "\x1b[32m" : "\x1b[31m";
             const resetColor = "\x1b[0m";
             const link = `https://gmgn.ai/sol/token/${trade.tokenMint}`;
 
-            // Link is ~66-70 chars
             console.log(
-                `| ${link.padEnd(68)} | ${timeStr.padEnd(5)} | ${formatPrice(trade.entryPrice).padEnd(12)} | ${formatPrice(trade.currentPrice).padEnd(12)} | ${plColor}${(trade.profitLossPercent.toFixed(1) + "%").padEnd(9)}${resetColor} | ${plColor}${trade.profitLossSol.toFixed(4)}${resetColor}`
+                `| ${link.padEnd(68)} | ${entryTimeStr.padEnd(8)} | ${timeStr.padEnd(6)} | ${formatPriceSol(trade.entryPrice).padEnd(12)} | ${formatPriceUsd(trade.entryPriceUsd).padEnd(10)} | ${formatPriceSol(trade.currentPrice).padEnd(12)} | ${formatPriceUsd(trade.currentPriceUsd).padEnd(10)} | ${plColor}${(trade.profitLossPercent.toFixed(1) + "%").padEnd(9)}${resetColor} | ${plColor}${trade.profitLossSol.toFixed(4)}${resetColor}`
             );
         });
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
     }
 
     if (closedTrades.length > 0) {
         console.log("\n🏁 CLOSED TRADES (Last 5):");
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
         console.log(
-            "| GMGN Link                                                        | Duration | Entry (SOL)  | Exit (SOL)   | PNL (%)   | Reason"
+            "| GMGN Link                                                        | Entry    | Duration | Entry SOL    | Entry USD  | Exit SOL     | Exit USD   | PNL (%)   | Reason"
         );
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
 
         const lastTrades = closedTrades.slice(-5).reverse();
 
@@ -131,19 +142,20 @@ function displayTradeStatus() {
             const minutes = Math.floor(elapsedTime / 60);
             const seconds = elapsedTime % 60;
             const timeStr = `${minutes}m${seconds}s`;
+            const entryTimeStr = trade.entryTime.toLocaleTimeString('it-IT', { hour12: false });
 
             const plColor = trade.profitLossPercent >= 0 ? "\x1b[32m" : "\x1b[31m";
             const resetColor = "\x1b[0m";
             const link = `https://gmgn.ai/sol/token/${trade.tokenMint}`;
 
             console.log(
-                `| ${link.padEnd(68)} | ${timeStr.padEnd(8)} | ${formatPrice(trade.entryPrice).padEnd(12)} | ${formatPrice(trade.currentPrice).padEnd(12)} | ${plColor}${(trade.profitLossPercent.toFixed(1) + "%").padEnd(9)}${resetColor} | ${trade.exitReason}`
+                `| ${link.padEnd(68)} | ${entryTimeStr.padEnd(8)} | ${timeStr.padEnd(8)} | ${formatPriceSol(trade.entryPrice).padEnd(12)} | ${formatPriceUsd(trade.entryPriceUsd).padEnd(10)} | ${formatPriceSol(trade.currentPrice).padEnd(12)} | ${formatPriceUsd(trade.currentPriceUsd).padEnd(10)} | ${plColor}${(trade.profitLossPercent.toFixed(1) + "%").padEnd(9)}${resetColor} | ${trade.exitReason}`
             );
         });
-        console.log("-".repeat(130));
+        console.log("-".repeat(180));
     }
 
-    console.log("\n" + "=".repeat(130));
+    console.log("\n" + "=".repeat(180));
     console.log("Press Ctrl+C to stop paper trading");
 }
 
@@ -351,7 +363,7 @@ async function handleMigrationWssData(data: WebSocket.Data, connection: Connecti
             }
 
             console.log(`\n💎 Token found: ${tokenMint}`);
-            console.log(`📉 Entry Price: ${formatPrice(initialPriceSol)}`);
+            console.log(`📉 Entry Price: ${formatPriceSol(initialPriceSol)} SOL`);
             const newTrade: PaperTrade = {
                 tokenMint,
                 entryTime: new Date(),
@@ -449,32 +461,46 @@ async function startPaperTrading(): Promise<void> {
     }
     const connection = new Connection(RPC_ENDPOINT, "confirmed");
 
+    const keepers = config.migration_keepers;
+
     console.log("\n" + "=".repeat(80));
     console.log("🎮 PAPER TRADING MODE (JUPITER API EDITION)");
     console.log("=".repeat(80));
     console.log(`💰 Simulated investment per trade: ${PAPER_TRADE_AMOUNT_SOL} SOL`);
+    console.log(`👀 Monitoring ${keepers.length} migration keepers:`);
+    keepers.forEach((k, i) => console.log(`   Keeper ${i + 1}: ${k}`));
     console.log(`🎯 Waiting for first token migration...`);
     console.log("=".repeat(80) + "\n");
 
-    let migrationWsClient: WebSocket | null = new WebSocket(WSS_ENDPOINT);
-    const migrationRequest = returnMigrationSubscribeRequest();
+    // Create subscription for each keeper
+    keepers.forEach((keeperAddress, index) => {
+        const ws = new WebSocket(WSS_ENDPOINT);
+        
+        const subscribeRequest = {
+            jsonrpc: "2.0",
+            id: `keeper-${index + 1}`,
+            method: "logsSubscribe",
+            params: [
+                { mentions: [keeperAddress] },
+                { commitment: "processed" },
+            ],
+        };
 
-    try {
-        migrationWsClient.on("message", (data) => handleMigrationWssData(data, connection));
-        migrationWsClient.on("open", () => {
-            migrationWsClient!.send(JSON.stringify(migrationRequest));
+        ws.on("open", () => {
+            console.log(`✅ Keeper ${index + 1} subscription active`);
+            ws.send(JSON.stringify(subscribeRequest));
         });
-        migrationWsClient.on("close", () => {
-            console.log("🔐 Migration WebSocket closed. Reconnecting in 5 seconds...");
+
+        ws.on("message", (data) => handleMigrationWssData(data, connection));
+
+        ws.on("close", () => {
+            console.log(`🔐 Keeper ${index + 1} WebSocket closed. Reconnecting in 5 seconds...`);
             setTimeout(() => startPaperTrading(), 5000);
         });
-        migrationWsClient.on("error", (error: Error) => {
-            console.log("❌ Migration WebSocket error:", error.message);
-        });
 
-    } catch (error) {
-        console.error("❌ Error during WebSocket setup:", error);
-        migrationWsClient?.close();
-    }
+        ws.on("error", (error: Error) => {
+            console.log(`❌ Keeper ${index + 1} WebSocket error:`, error.message);
+        });
+    });
 }
 startPaperTrading();
