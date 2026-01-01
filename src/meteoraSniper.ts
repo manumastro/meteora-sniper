@@ -34,7 +34,18 @@ import { getRugCheckConfirmed } from "./utils/rugCheck";
 // CheckRugCheckScore is now replaced by getRugCheckConfirmed
 // Wrapper to maintain similarity or just use new function directly
 async function checkRugCheckScore(mintAddress: string): Promise<boolean> {
-   return await getRugCheckConfirmed(mintAddress);
+    const MAX_RETRIES = 10; // Wait up to ~20 seconds
+    const DELAY_MS = 2000;
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+        const isSafe = await getRugCheckConfirmed(mintAddress);
+        if (isSafe) return true;
+
+        console.log(`⏳ RugCheck failed or missing data. Retrying in ${DELAY_MS/1000}s... (Attempt ${i + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+    }
+    
+    return false;
 }
 
 
