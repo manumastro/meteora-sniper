@@ -171,10 +171,9 @@ export async function testPoolConnection(connection: Connection, poolAddress: st
 }
 
 /**
- * Executes a Jito Bundle Swap (Swap + Tip)
+ * Prepares a VersionedTransaction ready for Jito Bundling
  */
-export async function executeJitoSwap(
-    searcherClient: SearcherClient,
+export async function prepareJitoTransaction(
     connection: Connection,
     payerKeypair: Keypair,
     poolAddress: string,
@@ -183,9 +182,8 @@ export async function executeJitoSwap(
     tipLamports: number,
     tipAccount: PublicKey,
     slippagePercent: number = 1.0
-): Promise<string | null> {
+): Promise<VersionedTransaction | null> {
     try {
-        // 1. Get Swap Transaction (Instructions)
         const swapResult = await createSwapTransaction(
             connection,
             payerKeypair.publicKey,
@@ -199,20 +197,17 @@ export async function executeJitoSwap(
 
         const { transaction: swapTx } = swapResult;
 
-        // 2. Create Tip Instruction
         const tipIx = SystemProgram.transfer({
             fromPubkey: payerKeypair.publicKey,
             toPubkey: tipAccount,
             lamports: tipLamports,
         });
 
-        // 3. Bundle Construction
         const latestBlockhash = await connection.getLatestBlockhash("confirmed");
         
-        // Combine all instructions
+        // Combine instructions
         const instructions = [...swapTx.instructions, tipIx];
 
-        // Create Versioned Transaction (Preferred/Required for Jito Bundles)
         const messageV0 = new TransactionMessage({
             payerKey: payerKeypair.publicKey,
             recentBlockhash: latestBlockhash.blockhash,
@@ -222,17 +217,43 @@ export async function executeJitoSwap(
         const vTx = new VersionedTransaction(messageV0);
         vTx.sign([payerKeypair]);
 
-        const bundle = new Bundle([vTx], 5);
+        return vTx;
+    } catch (e: any) {
+        console.error("❌ Error preparing Jito transaction:", e.message);
+        return null;
+    }
+}
 
-        // 4. Send Bundle
+/**
+ * Executes a Jito Bundle Swap (Swap + Tip)
+ */
+export async function executeJitoSwap(
+    searcherClient: SearcherClient,
+    connection: Connection,
+    payerKeypair: Keypair,
+    poolAddress: string,
+    inputTokenMint: string,
+    inputAmountLamports: number,
+    tipLamports: number,
+    tipAccount: PublicKey,
+    slippagePercent: number = 1.0
+): Promise<string | null> {
+    const vTx = await prepareJitoTransaction(
+        connection,
+        payerKeypair,
+        poolAddress,
+        inputTokenMint,
+        inputAmountLamports,
+        tipLamports,
+        tipAccount,
+        slippagePercent
+    );
+
+    if (!vTx) return null;
+
+    try {
+        const bundle = new Bundle([vTx], 5);
         const result = await searcherClient.sendBundle(bundle);
-        
-        // Check "in_progress" or similar logic? 
-        // Jito-ts returns a Result-like object or just the ID string depending on version?
-        // The lint error said: Result<string, SearcherClientError>
-        // We assume it has a .value property on success if it's a Rust-style Result.
-        // Actually earlier it said: Type '{ ok: true; value: string; }' is not assignable to type 'string'.
-        // So the object is { ok: boolean, value?: string, error?: any }
         
         // @ts-ignore
         if (result.value) {
@@ -245,7 +266,7 @@ export async function executeJitoSwap(
         }
 
     } catch (e: any) {
-        console.error("❌ Error executing Jito Swap:", e.message);
+        console.error("❌ Error sending Jito Bundle:", e.message);
         return null;
     }
 }
