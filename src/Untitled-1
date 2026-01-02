@@ -1,0 +1,624 @@
+[Skip to main content](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#content-area)
+[Meteora Documentation home page](https://docs.meteora.ag/)
+- [App](https://app.meteora.ag/)
+- [Blog](https://blog.meteora.ag)
+- [Support](https://discord.com/invite/meteora)
+[App](https://app.meteora.ag/)
+[Blog](https://blog.meteora.ag)
+[Support](https://discord.com/invite/meteora)
+[Home](https://docs.meteora.ag/)
+[Overview](https://docs.meteora.ag/overview/home)
+[Anti Sniper Suite](https://docs.meteora.ag/anti-sniper-suite/home)
+[User Guide](https://docs.meteora.ag/user-guide/usage/getting-started)
+[Developer Guide](https://docs.meteora.ag/developer-guide/home)
+[API Reference](https://docs.meteora.ag/api-reference/home)
+[Resources](https://docs.meteora.ag/resources/community/tools)
+[Legal](https://docs.meteora.ag/legal/terms-of-service)
+[$MET](https://docs.meteora.ag/met/tokenomics)
+- [GitHub](https://github.com/MeteoraAg)
+- [Faucet](https://faucet.raccoons.dev/)
+- [Support](https://discord.com/invite/meteora)
+- [Developer Updates](https://t.me/meteora_dev)
+- [API Status](https://t.me/meteora_dev)
+[GitHub](https://github.com/MeteoraAg)
+[Faucet](https://faucet.raccoons.dev/)
+[Support](https://discord.com/invite/meteora)
+[Developer Updates](https://t.me/meteora_dev)
+[API Status](https://t.me/meteora_dev)
+
+##### Introduction
+- [Overview](https://docs.meteora.ag/developer-guide/home)
+[Overview](https://docs.meteora.ag/developer-guide/home)
+
+##### Quick Launch
+- [DLMM Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/dlmm-launch-pool)
+- [DAMM v2 Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/damm-v2-launch-pool)
+- [DAMM v1 Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/damm-v1-launch-pool)
+- [DBC Token Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/dbc-token-launch-pool)
+[DLMM Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/dlmm-launch-pool)
+[DAMM v2 Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/damm-v2-launch-pool)
+[DAMM v1 Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/damm-v1-launch-pool)
+[DBC Token Launch Pool](https://docs.meteora.ag/developer-guide/quick-launch/dbc-token-launch-pool)
+
+##### Invent with Metsumi
+- [Actions](https://docs.meteora.ag/developer-guide/invent/actions)
+- Scaffolds
+[Actions](https://docs.meteora.ag/developer-guide/invent/actions)
+
+##### Guides
+- DLMM
+- DAMM v2
+- DAMM v1
+- DBC
+- Presale Vault [Beta]
+- Alpha Vault
+- Stake2Earn
+- Dynamic Vault
+- Dynamic Fee Sharing
+- Zap
+
+##### Trading Terminals
+- [Integrate with DBC](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc)
+- [Integrate with DAMM v2](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-damm-v2)
+[Integrate with DBC](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc)
+[Integrate with DAMM v2](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-damm-v2)
+- [Bonding Curve Progress](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#bonding-curve-progress)
+- [Core Formula](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#core-formula)
+- [1. Get Quote Reserve from Pool State](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#1-get-quote-reserve-from-pool-state)
+- [2. Get Quote Reserve from Next Sqrt Price](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#2-get-quote-reserve-from-next-sqrt-price)
+- [3. Directly from EvtSwap2 swap CPI logs](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#3-directly-from-evtswap2-swap-cpi-logs)
+- [Total Fees](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#total-fees)
+- [Base Fees](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#base-fees)
+- [Flat Fee](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#flat-fee)
+- [Fee Scheduler](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#fee-scheduler)
+- [Rate Limiter](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#rate-limiter)
+- [Dynamic Fees (Variable Fee)](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#dynamic-fees-variable-fee)
+
+- [Plotting Charts](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#plotting-charts)
+- [Trading Volume](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#trading-volume)
+- [Liquidity](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#liquidity)
+- [Locked Vesting](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#locked-vesting)
+- [Migration](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#migration)
+- [Meteora’s DBC Migration Keepers](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#meteora%E2%80%99s-dbc-migration-keepers)
+- [How to Identify Launchpads Using DBC](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#how-to-identify-launchpads-using-dbc)
+- [Referral Account](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#referral-account)
+[Bonding Curve Progress](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#bonding-curve-progress)
+[Core Formula](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#core-formula)
+[1. Get Quote Reserve from Pool State](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#1-get-quote-reserve-from-pool-state)
+[2. Get Quote Reserve from Next Sqrt Price](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#2-get-quote-reserve-from-next-sqrt-price)
+[3. Directly from EvtSwap2 swap CPI logs](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#3-directly-from-evtswap2-swap-cpi-logs)
+[Total Fees](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#total-fees)
+[Base Fees](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#base-fees)
+[Flat Fee](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#flat-fee)
+[Fee Scheduler](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#fee-scheduler)
+[Rate Limiter](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#rate-limiter)
+[Dynamic Fees (Variable Fee)](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#dynamic-fees-variable-fee)
+[Plotting Charts](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#plotting-charts)
+[Trading Volume](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#trading-volume)
+[Liquidity](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#liquidity)
+[Locked Vesting](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#locked-vesting)
+[Migration](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#migration)
+[Meteora’s DBC Migration Keepers](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#meteora%E2%80%99s-dbc-migration-keepers)
+[How to Identify Launchpads Using DBC](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#how-to-identify-launchpads-using-dbc)
+[Referral Account](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#referral-account)
+
+# Integrate with DBC
+
+Everything you need to know to integrate with Meteora’s DBC Program
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#bonding-curve-progress)Bonding Curve Progress
+
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#bonding-curve-progress)
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#core-formula)Core Formula
+
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#core-formula)
+
+```
+bondingCurveProgress = poolState.quoteReserve / poolConfigState.migration_quote_threshold
+```
+
+
+```
+bondingCurveProgress = poolState.quoteReserve / poolConfigState.migration_quote_threshold
+```
+
+1. From the poolState.quoteReserve state in a DBC pool.
+2. From the nextSqrtPrice in the swap CPI logs.
+3. Directly from EvtSwap2 swap CPI logs.
+
+```
+poolState.quoteReserve
+```
+
+
+```
+nextSqrtPrice
+```
+
+
+```
+EvtSwap2
+```
+
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#1-get-quote-reserve-from-pool-state)1. Get Quote Reserve from Pool State
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#1-get-quote-reserve-from-pool-state)
+
+```
+const client = new DynamicBondingCurveClient(connection, "confirmed"); const poolState = await client.state.getPool(poolAddress); const quoteReserve = poolState.quoteReserve;
+```
+
+
+```
+const client = new DynamicBondingCurveClient(connection, "confirmed"); const poolState = await client.state.getPool(poolAddress); const quoteReserve = poolState.quoteReserve;
+```
+
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#2-get-quote-reserve-from-next-sqrt-price)2. Get Quote Reserve from Next Sqrt Price
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#2-get-quote-reserve-from-next-sqrt-price)
+
+```
+get_quote_token_from_sqrt_price
+```
+
+
+```
+pub fn get_quote_token_from_sqrt_price(next_sqrt_price: u128, config: &PoolConfig) -> Result<U256> { let mut total_amount = U256::ZERO; for i in 0..MAX_CURVE_POINT { let lower_sqrt_price = if i == 0 { config.sqrt_start_price } else { config.curve[i - 1].sqrt_price }; if next_sqrt_price > lower_sqrt_price { let upper_sqrt_price = if next_sqrt_price < config.curve[i + 1].sqrt_price { next_sqrt_price } else { config.curve[i + 1].sqrt_price }; let max_amount_in = get_delta_amount_quote_unsigned_256( lower_sqrt_price, upper_sqrt_price, config.curve[i].liquidity, Rounding::Up, )?; total_amount = total_amount.safe_add(max_amount_in)?; } } Ok(total_amount) }
+```
+
+
+```
+pub fn get_quote_token_from_sqrt_price(next_sqrt_price: u128, config: &PoolConfig) -> Result<U256> { let mut total_amount = U256::ZERO; for i in 0..MAX_CURVE_POINT { let lower_sqrt_price = if i == 0 { config.sqrt_start_price } else { config.curve[i - 1].sqrt_price }; if next_sqrt_price > lower_sqrt_price { let upper_sqrt_price = if next_sqrt_price < config.curve[i + 1].sqrt_price { next_sqrt_price } else { config.curve[i + 1].sqrt_price }; let max_amount_in = get_delta_amount_quote_unsigned_256( lower_sqrt_price, upper_sqrt_price, config.curve[i].liquidity, Rounding::Up, )?; total_amount = total_amount.safe_add(max_amount_in)?; } } Ok(total_amount) }
+```
+
+
+```
+getQuoteReserveFromNextSqrtPrice
+```
+
+[DBC TypeScript SDK](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/docs.md#getQuoteReserveFromNextSqrtPrice)
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#3-directly-from-evtswap2-swap-cpi-logs)3. Directly from EvtSwap2 swap CPI logs
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#3-directly-from-evtswap2-swap-cpi-logs)
+
+```
+EvtSwap2
+```
+
+
+```
+EvtSwap2
+```
+
+
+```
+{ "pool": "51mjM3ne2AiMHfeox78yjwwks7tF6sYokuuMkibAkSpn", "config": "H4r8wEqix3mN6WDv7qZKaAdQj3GYg7xBMbFND4Cx9Bwt", "tradeDirection": 0, "hasReferral": false, "swapParameters": { "amount0": "797867598488800000", "amount1": "4900009949", "swapMode": 0 }, "swapResult": { "includedFeeInputAmount": "797867598488800000", "excludedFeeInputAmount": "797867598488800000", "amountLeft": "0", "outputAmount": "4900499999", "nextSqrtPrice": "748125024131879", "tradingFee": "39600000", "protocolFee": "9900000", "referralFee": "0" }, "quoteReserveAmount": "1", "migrationThreshold": "5000000000", "currentTimestamp": "1756275517" }
+```
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#core-formula)Core Formula
+
+```
+{ "pool": "51mjM3ne2AiMHfeox78yjwwks7tF6sYokuuMkibAkSpn", "config": "H4r8wEqix3mN6WDv7qZKaAdQj3GYg7xBMbFND4Cx9Bwt", "tradeDirection": 0, "hasReferral": false, "swapParameters": { "amount0": "797867598488800000", "amount1": "4900009949", "swapMode": 0 }, "swapResult": { "includedFeeInputAmount": "797867598488800000", "excludedFeeInputAmount": "797867598488800000", "amountLeft": "0", "outputAmount": "4900499999", "nextSqrtPrice": "748125024131879", "tradingFee": "39600000", "protocolFee": "9900000", "referralFee": "0" }, "quoteReserveAmount": "1", "migrationThreshold": "5000000000", "currentTimestamp": "1756275517" }
+```
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#total-fees)Total Fees
+
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#total-fees)
+
+```
+totalFees = baseFees + dynamicFees
+```
+
+
+```
+totalFees = baseFees + dynamicFees
+```
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#base-fees)Base Fees
+
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#base-fees)
+
+```
+BaseFeeMode
+```
+
+- 0 = Linear Fee Scheduler
+- 1 = Exponential Fee Scheduler
+- 2 = Rate Limiter
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#flat-fee)Flat Fee
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#flat-fee)
+
+```
+cliffFeeNumerator
+```
+
+
+```
+baseFee
+```
+
+
+```
+firstFactor
+```
+
+
+```
+secondFactor
+```
+
+
+```
+thirdFactor
+```
+
+
+```
+// Example baseFee: { cliffFeeNumerator: <BN: 10000000>, // 1% flat fee firstFactor: 0, secondFactor: <BN: 0>, thirdFactor: <BN: 0>, baseFeeMode: 0 }
+```
+
+
+```
+// Example baseFee: { cliffFeeNumerator: <BN: 10000000>, // 1% flat fee firstFactor: 0, secondFactor: <BN: 0>, thirdFactor: <BN: 0>, baseFeeMode: 0 }
+```
+
+
+```
+poolState.activationType
+```
+
+- If the poolState.activationType == 0, then numberOfPeriod and periodFrequency is calculated in SLOT == 400ms
+- If the poolState.activationType == 1, then numberOfPeriod and periodFrequency is calculated in SECONDS == 1000ms
+
+```
+poolState.activationType == 0
+```
+
+
+```
+numberOfPeriod
+```
+
+
+```
+periodFrequency
+```
+
+
+```
+SLOT == 400ms
+```
+
+
+```
+poolState.activationType == 1
+```
+
+
+```
+numberOfPeriod
+```
+
+
+```
+periodFrequency
+```
+
+
+```
+SECONDS == 1000ms
+```
+
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#fee-scheduler)Fee Scheduler
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#fee-scheduler)
+- 
+For Fee Scheduler, it contains numberOfPeriod, periodFrequency, and reductionFactor which are paired with the firstFactor, secondFactor, and thirdFactor respectively.
+
+- 
+baseFeeMode can only be 0 or 1.
+
+
+```
+numberOfPeriod
+```
+
+
+```
+periodFrequency
+```
+
+
+```
+reductionFactor
+```
+
+
+```
+firstFactor
+```
+
+
+```
+secondFactor
+```
+
+
+```
+thirdFactor
+```
+
+
+```
+baseFeeMode
+```
+
+
+```
+interface BaseFee = { cliffFeeNumerator: BN firstFactor: number // numberOfPeriod secondFactor: BN // periodFrequency thirdFactor: BN // reductionFactor baseFeeMode: BaseFeeMode // 0 or 1 }
+```
+
+
+```
+interface BaseFee = { cliffFeeNumerator: BN firstFactor: number // numberOfPeriod secondFactor: BN // periodFrequency thirdFactor: BN // reductionFactor baseFeeMode: BaseFeeMode // 0 or 1 }
+```
+
+[here](https://docs.meteora.ag/anti-sniper-suite/fee-scheduler/fee-scheduler-math)
+
+```
+// Fee Scheduler: 50% reduce to 1% in 10 minutes linearly baseFee: { cliffFeeNumerator: <BN: 500000000>, firstFactor: 60, // numberOfPeriods secondFactor: <BN: 8166666>, // periodFrequency thirdFactor: <BN: 10>, // reduction factor baseFeeMode: 0 },
+```
+
+
+```
+// Fee Scheduler: 50% reduce to 1% in 10 minutes linearly baseFee: { cliffFeeNumerator: <BN: 500000000>, firstFactor: 60, // numberOfPeriods secondFactor: <BN: 8166666>, // periodFrequency thirdFactor: <BN: 10>, // reduction factor baseFeeMode: 0 },
+```
+
+
+```
+// Fee Scheduler: 50% reduce to 1% in 10 minutes exponentially baseFee: { cliffFeeNumerator: <BN: 500000000>, firstFactor: 60, // numberOfPeriods secondFactor: <BN: 631>, // periodFrequency thirdFactor: <BN: 10>, // reduction factor baseFeeMode: 1 },
+```
+
+
+```
+// Fee Scheduler: 50% reduce to 1% in 10 minutes exponentially baseFee: { cliffFeeNumerator: <BN: 500000000>, firstFactor: 60, // numberOfPeriods secondFactor: <BN: 631>, // periodFrequency thirdFactor: <BN: 10>, // reduction factor baseFeeMode: 1 },
+```
+
+
+#### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#rate-limiter)Rate Limiter
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#rate-limiter)
+- 
+For Rate Limiter, it contains feeIncrementBps, maxLimiterDuration, and referenceAmount which are paired with the firstFactor, secondFactor, and thirdFactor respectively.
+
+- 
+baseFeeMode can only be 2.
+
+
+```
+feeIncrementBps
+```
+
+
+```
+maxLimiterDuration
+```
+
+
+```
+referenceAmount
+```
+
+
+```
+firstFactor
+```
+
+
+```
+secondFactor
+```
+
+
+```
+thirdFactor
+```
+
+
+```
+baseFeeMode
+```
+
+
+```
+interface BaseFee = { cliff_fee_numerator: BN first_factor: number //feeIncrementBps secondFactor: BN // maxLimiterDuration thirdFactor: BN // referenceAmount baseFeeMode: BaseFeeMode // 2 }
+```
+
+
+```
+interface BaseFee = { cliff_fee_numerator: BN first_factor: number //feeIncrementBps secondFactor: BN // maxLimiterDuration thirdFactor: BN // referenceAmount baseFeeMode: BaseFeeMode // 2 }
+```
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#base-fees)Base Fees
+[here](https://docs.meteora.ag/anti-sniper-suite/rate-limiter/rate-limiter-math)
+
+```
+// Rate Limiter: Starts at 1% fee -> Exponential increase in fee for 10 slots based on trade size // 0.5 SOL trade // fee = 0.5 SOL * 0.1% = 0.0005 SOL // 1.5 SOL trade // fee = 1 SOL * 0.1% + 0.5 SOL * 0.2% = 0.002 SOL // 3 SOL trade // fee = 1 SOL * 0.1% + 1 SOL * 0.2% + 1 SOL * 0.3% = 0.006 SOL baseFee: { cliffFeeNumerator: new BN(10_000_000), firstFactor: 10, // feeIncrementBps secondFactor: new BN(10), // maxLimiterDuration thirdFactor: new BN(1000000000), // referenceAmount baseFeeMode: 2, // rate limiter mode }
+```
+
+
+```
+// Rate Limiter: Starts at 1% fee -> Exponential increase in fee for 10 slots based on trade size // 0.5 SOL trade // fee = 0.5 SOL * 0.1% = 0.0005 SOL // 1.5 SOL trade // fee = 1 SOL * 0.1% + 0.5 SOL * 0.2% = 0.002 SOL // 3 SOL trade // fee = 1 SOL * 0.1% + 1 SOL * 0.2% + 1 SOL * 0.3% = 0.006 SOL baseFee: { cliffFeeNumerator: new BN(10_000_000), firstFactor: 10, // feeIncrementBps secondFactor: new BN(10), // maxLimiterDuration thirdFactor: new BN(1000000000), // referenceAmount baseFeeMode: 2, // rate limiter mode }
+```
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#dynamic-fees-variable-fee)Dynamic Fees (Variable Fee)
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#dynamic-fees-variable-fee)
+[here](https://docs.meteora.ag/overview/products/dbc/trading-fees-calculation#dynamic-fee-variable-fee)
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#plotting-charts)Plotting Charts
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#plotting-charts)
+
+```
+TokenAmountIn
+```
+
+
+```
+TokenAmountOut
+```
+
+
+```
+EvtSwap2
+```
+
+
+```
+EvtSwap
+```
+
+
+```
+EvtSwap2
+```
+
+
+```
+if excludedFeeInputAmount != includedFeeInputAmount then: -> excludedFeeInputAmount <> outputAmount if excludedFeeInputAmount == includedFeeInputAmount then: -> excludedFeeInputAmount <> outputAmount + tradingFee + protocolFee + referralFee
+```
+
+
+```
+if excludedFeeInputAmount != includedFeeInputAmount then: -> excludedFeeInputAmount <> outputAmount if excludedFeeInputAmount == includedFeeInputAmount then: -> excludedFeeInputAmount <> outputAmount + tradingFee + protocolFee + referralFee
+```
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#trading-volume)Trading Volume
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#trading-volume)
+
+```
+// Depending on Trade Direction: trading_volume += excludedFeeInputAmount * token_price
+```
+
+
+```
+// Depending on Trade Direction: trading_volume += excludedFeeInputAmount * token_price
+```
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#liquidity)Liquidity
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#liquidity)
+
+```
+liquidity = poolState.quoteReserve * quoteTokenPrice
+```
+
+
+```
+liquidity = poolState.quoteReserve * quoteTokenPrice
+```
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#locked-vesting)Locked Vesting
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#locked-vesting)
+
+```
+total_vesting_amount = cliff_unlock_amount + (amount_per_period * number_of_period)
+```
+
+
+```
+total_vesting_amount = cliff_unlock_amount + (amount_per_period * number_of_period)
+```
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#migration)Migration
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#migration)
+- You can check whether the DBC pool has migrated via the isMigrated flag from the [DBC pool state](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/virtual_pool.rs).
+- You can also check the MigrationProgress from the [DBC pool state](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/virtual_pool.rs) via the MigrationProgress parameter.
+
+```
+isMigrated
+```
+
+[DBC pool state](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/virtual_pool.rs)
+[DBC pool state](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/virtual_pool.rs)
+
+```
+MigrationProgress
+```
+
+
+```
+IsMigrated::NotMigrated // 0 IsMigrated::Migrated // 1
+```
+
+
+```
+IsMigrated::NotMigrated // 0 IsMigrated::Migrated // 1
+```
+
+
+```
+MigrationProgress::PreBondingCurve // 0 MigrationProgress::PostBondingCurve // 1 MigrationProgress::LockedVesting // 2 MigrationProgress::CreatedPool // 3
+```
+
+
+```
+MigrationProgress::PreBondingCurve // 0 MigrationProgress::PostBondingCurve // 1 MigrationProgress::LockedVesting // 2 MigrationProgress::CreatedPool // 3
+```
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#meteora%E2%80%99s-dbc-migration-keepers)Meteora’s DBC Migration Keepers
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#meteora%E2%80%99s-dbc-migration-keepers)
+- We run a total of 2 DBC Migration Keepers to migrate the DBC pools. These migration keepers each have their individual threshold requirements of >= 750 USD worth of quoteReserve to migrate the pool provided quoteReserve >= migrationQuoteThreshold.
+- You can check out the migration keepers [here](https://docs.meteora.ag/developer-guide/guides/dbc/overview#migration-keeper).
+- If you would like to clear our tokens that are stuck (such that their quoteReserve is less than 750 USD worth of quoteToken), you can use the [Manual Migrator](https://migrator.meteora.ag/) to manually migrate the pool.
+
+```
+quoteReserve
+```
+
+
+```
+quoteReserve >= migrationQuoteThreshold
+```
+
+[here](https://docs.meteora.ag/developer-guide/guides/dbc/overview#migration-keeper)
+
+```
+quoteReserve
+```
+
+
+```
+quoteToken
+```
+
+[Manual Migrator](https://migrator.meteora.ag/)
+
+### [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#how-to-identify-launchpads-using-dbc)How to Identify Launchpads Using DBC
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#how-to-identify-launchpads-using-dbc)
+[discord](https://discord.gg/meteora)
+
+## [​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#referral-account)Referral Account
+
+[​](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-dbc#referral-account)
+- For trading terminals, we have a feature that enables trading terminals to earn referral fees from all swaps that happens on our Meteora DBC program as long as they were swapped through your trading terminal.
+- For referral fees, simply add your [referral token account](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/instructions/ix_swap.rs#L30) within the swap instruction & you will receive 20% of the protocol fees for all swaps.
+[referral token account](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/instructions/ix_swap.rs#L30)
+Was this page helpful?
+[SDK Functions](https://docs.meteora.ag/developer-guide/guides/zap/typescript-sdk/sdk-functions)
+[Integrate with DAMM v2](https://docs.meteora.ag/developer-guide/trading-terminals/integrate-with-damm-v2)
+[Meteora Documentation home page](https://docs.meteora.ag/)
+[discord](https://discord.gg/meteora)
+[x](https://x.com/MeteoraAG)
+[youtube](https://www.youtube.com/@meteora-ag)
+[medium](https://blog.meteora.ag/)
+[github](https://github.com/MeteoraAg)
+[linkedin](https://www.linkedin.com/company/meteora-ag/)
+[Meteora](https://app.meteora.ag)
+[Terms of Service](https://docs.meteora.ag/legal/terms-of-service)
+[discord](https://discord.gg/meteora)
+[x](https://x.com/MeteoraAG)
+[youtube](https://www.youtube.com/@meteora-ag)
+[medium](https://blog.meteora.ag/)
+[github](https://github.com/MeteoraAg)
+[linkedin](https://www.linkedin.com/company/meteora-ag/)
+[Powered by](https://www.mintlify.com?utm_campaign=poweredBy&utm_medium=referral&utm_source=meteora)

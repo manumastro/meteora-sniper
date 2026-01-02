@@ -12,12 +12,17 @@ export const config = {
   wsol_pc_mint: "So11111111111111111111111111111111111111112",
   dry_run: false, // Set to false to enable real trading
   axios: {
-    get_timeout: 5000,
+    get_timeout: 10000,
   },
   sell: {
-    auto_sell_delay_ms: 30000, // 30 seconds
+    auto_sell_delay_ms: 15000, // 8 seconds (ultra-fast scalping)
+  },
+  jito: {
+    tip_buy_sol: 0.000001, // Jito tip for buy transactions
+    tip_sell_sol: 0.000001, // Jito tip for sell transactions  
   },
   checks: {
+    use_local_checks: true, // If true, replaces RugCheck API with local RPC checks
     verbose_logs: false,
     settings: {
       exclude_lp_from_topholders: true,
@@ -26,7 +31,7 @@ export const config = {
       allow_freeze_authority: false,
       allow_mutable: true, // Often true for new tokens, set to true to be less strict or false to be strict
       allow_insider_topholders: false,
-      max_alowed_pct_topholders: 50, // Example value
+      max_alowed_pct_topholders: 80, // Example value
       min_total_lp_providers: 0, // Set low for new tokens
       min_total_markets: 0, // Set low for new tokens
       min_total_market_Liquidity: 0, // Set low for new tokens

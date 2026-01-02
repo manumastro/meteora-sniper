@@ -1,78 +1,51 @@
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { executeJupiterSell } from "../jupiterSwap";
-import { executeJitoSwap } from "../execution";
+import { Connection, Keypair } from "@solana/web3.js";
+import { executeDBCSwap } from "../execution";
 import { config } from "../config";
 
 export enum SellStrategy {
-  JUPITER = "JUPITER",
-  JITO = "JITO",
+  DBC_RPC = "DBC_RPC",
 }
 
 export class SellService {
-  /**
-   * Main entry point to sell tokens.
-   * Defaults to Jupiter as it's the general purpose solution.
-   */
   static async executeSell(
     connection: Connection,
     walletKeypair: Keypair,
     mint: string,
-    amount: number, // Token Amount (Integer)
-    poolAddress: string | null, // Required only for Jito
-    strategy: SellStrategy = SellStrategy.JUPITER,
-    jitoClients?: Map<string, any>, // Required for Jupiter (passed deeply) or Jito
-    jitoClient?: any, // Specific client for Jito
-    tipAccounts: string[] = []
-  ): Promise<string | null> {
+    amount: number,
+    poolAddress: string
+  ): Promise<{ signature: string | null; error?: string }> {
     
-    if (tipAccounts.length === 0) {
-        console.error("❌ No tip accounts available for sell.");
-        return null;
+    if (!poolAddress) {
+        console.error("❌ Pool Address required for DBC Sell.");
+        return { signature: null, error: "MissingPoolAddress" };
     }
-
-    // Common params
-    const tipLamports = 0.0001 * 1_000_000_000; // Hardcoded or from config
-    const randomTipAccount = new PublicKey(tipAccounts[Math.floor(Math.random() * tipAccounts.length)]);
-
-    console.log(`📉 Selling ${amount} of ${mint} using ${strategy}...`);
+    console.log(`📉 Selling ${amount} of ${mint} using DBC Direct...`);
 
     try {
-        if (strategy === SellStrategy.JUPITER) {
-            if (!jitoClients) {
-                console.error("❌ Jito Clients map required for Jupiter Sell.");
-                return null;
-            }
-            return await executeJupiterSell(
-                connection,
-                jitoClients,
-                walletKeypair,
-                mint,
-                amount,
-                tipLamports,
-                randomTipAccount.toBase58() // Expects string
-            );
-        } else if (strategy === SellStrategy.JITO) {
-            if (!poolAddress || !jitoClient) {
-                console.error("❌ Pool Address and Jito Client required for Jito Sell.");
-                return null;
-            }
-            // Logic moved from triggerSell
-            return await executeJitoSwap(
-                jitoClient,
-                connection,
-                walletKeypair,
-                poolAddress,
-                mint,
-                amount,
-                tipLamports,
-                randomTipAccount, // Expects PublicKey
-                5.0 // High slippage for forced exit
-            );
-        }
-    } catch (e) {
-        console.error("❌ Sell Execution Failed:", e);
-    }
+        // Use executeDBCSwap for selling
+        // Token In: The Token (Mint)
+        // Token Out: WSOL
+        const wsol = config.wsol_pc_mint || "So11111111111111111111111111111111111111112";
 
-    return null;
+        // IMPORTANT: DBC SDK requires integer amounts (lamports/atomic units)
+        // Ensure amount is passed as integer
+        const amountInt = Math.floor(amount);
+
+        const result = await executeDBCSwap(
+            connection,
+            walletKeypair,
+            poolAddress,
+            mint,     // Selling Token (Token In)
+            wsol,     // Buying WSOL (Token Out)
+            amountInt,// Amount of Token to sell
+            50.0,     // High slippage for sell
+            true      // Close Token Account to reclaim rent
+        );
+        return result;
+
+    } catch (e: any) {
+        console.error(`❌ Sell failed:`, e);
+        return { signature: null, error: e?.message || "UnknownSellError" };
+    }
   }
 }

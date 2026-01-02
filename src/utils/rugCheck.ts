@@ -12,7 +12,12 @@ import { insertNewToken, selectTokenByNameAndCreator } from "../tracker/db";
  * @param tokenMint The token's mint address
  * @returns Promise<boolean> indicating if the token passes all checks
  */
-export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> {
+export interface RugCheckResult {
+    isSafe: boolean;
+    retryable: boolean;
+}
+
+export async function getRugCheckConfirmed(tokenMint: string): Promise<RugCheckResult> {
   try {
     const rugResponse = await axios.get<RugResponseExtended>(`https://api.rugcheck.xyz/v1/tokens/${tokenMint}/report`, {
       timeout: config.axios.get_timeout,
@@ -20,7 +25,7 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
 
     if (!rugResponse.data) {
         console.log("🚫 [Rug Check Handler] Empty response from API.");
-        return false;
+        return { isSafe: false, retryable: true };
     }
 
     // For debugging purposes, log the full response data
@@ -35,7 +40,7 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
     // Safety check for critical objects
     if (!tokenReport.token || !tokenReport.tokenMeta || !tokenReport.topHolders) {
         console.log("🚫 [Rug Check Handler] Missing critical token data (token, meta, or holders).");
-        return false;
+        return { isSafe: false, retryable: true };
     }
 
     const mintAuthority = tokenReport.token.mintAuthority;
@@ -96,6 +101,7 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
       {
         check: !rugCheckSettings.allow_freeze_authority && freezeAuthority !== null,
         message: "🚫 Freeze authority should be null",
+        forceRetry: true // Sometimes transient
       },
       {
         check: !rugCheckSettings.allow_mutable && tokenMutable !== false,
@@ -153,11 +159,11 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
         if (duplicate.length !== 0) {
           if (rugCheckSettings.block_returning_token_names && duplicate.some((token) => token.name === tokenName)) {
             console.log("🚫 Token with this name was already created");
-            return false;
+            return { isSafe: false, retryable: false };
           }
           if (rugCheckSettings.block_returning_token_creators && duplicate.some((token) => token.creator === tokenCreator)) {
             console.log("🚫 Token from this creator was already created");
-            return false;
+            return { isSafe: false, retryable: false };
           }
         }
       } catch (error) {
@@ -187,7 +193,8 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
     for (const condition of conditions) {
       if (condition.check) {
         console.log(condition.message);
-        return false;
+        // These are definitive rule violations, so NOT retryable.
+        return { isSafe: false, retryable: false };
       }
     }
 
@@ -198,9 +205,9 @@ export async function getRugCheckConfirmed(tokenMint: string): Promise<boolean> 
     console.log(`   - LP Providers: ${totalLPProviders}`);
     console.log(`   - Max Holder: ${maxHolderPct.toFixed(2)}%`);
 
-    return true;
+    return { isSafe: true, retryable: false };
   } catch (error) {
     console.error(`Error in rug check for token ${tokenMint}:`, error);
-    return false; // Consider token unsafe if there's an error
+    return { isSafe: false, retryable: true }; // Consider error unsafe but retryable
   }
 }

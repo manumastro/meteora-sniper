@@ -28,6 +28,7 @@
     "@mercurial-finance/dynamic-amm-sdk": "^1.1.23",
     "@meteora-ag/cp-amm-sdk": "^1.2.6",
     "@meteora-ag/dlmm-sdk": "^0.7.7",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.4.9",
     "@project-serum/anchor": "^0.26.0",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.95.5",
