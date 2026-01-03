@@ -210,8 +210,7 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
                 b.mint === targetMint && 
                 b.owner !== DBC_PROGRAM_ID &&
                 b.owner !== METEORA_POOL_AUTHORITY &&
-                b.owner !== "11111111111111111111111111111111" && // Exclude system program
-                b.owner !== feePayer // Exclude the TX signer if they're just creating the pool
+                b.owner !== "11111111111111111111111111111111" // Exclude system program
             );
             
             if (relevantBalances.length > 0) {
@@ -324,7 +323,7 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
             let buyConfirmed = false;
             const confirmStartTime = Date.now();
             
-            while (Date.now() - confirmStartTime < 30000) { // 30s Max Wait
+            while (Date.now() - confirmStartTime < 10000) { // 10s Max Wait (faster release)
                 // 1. Check Signature Status (Fastest check usually)
                 const status = await connection.getSignatureStatus(swapSignature, { searchTransactionHistory: false });
                 if (status.value?.confirmationStatus === "confirmed" || status.value?.confirmationStatus === "finalized") {
@@ -382,43 +381,102 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
     }
 }
 
-// Scheduled Auto-Sell (Target 95% Curve or 60s Timeout)
+// Scheduled Auto-Sell (Dynamic Target System)
 function scheduleAutoSell(mint: string, poolAddress: string, connection: Connection) {
-    const TIMEOUT_MS = 180000; // 180 Seconds Max Hold
-    const TARGET_CURVE = 97;  // Sell when curve hits 97%
+    
+    // ═══════════════════════════════════════════════════════════════
+    // SELL STRATEGY CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════
+    
+    const TIMING = {
+        TIMEOUT_MS: 120000,        // 120 Seconds Max Hold
+        POLL_INTERVAL_MS: 600      // Poll every 600ms
+    };
+    
+    const TARGETS = {
+        DEFAULT: 96,               // Normal target (curve < 90%)
+        MID_START: 92,             // Target when starting 90-92%
+        HIGH_START: 96             // Target when starting > 92%
+    };
+    
+    const THRESHOLDS = {
+        MID_CURVE: 90,             // Above this → use MID_START target
+        HIGH_CURVE: 92,            // Above this → use HIGH_START target
+        LIQUIDITY_SPIKE_SOL: 50    // Sell if liquidity increases by this much
+    };
+    
+    // ═══════════════════════════════════════════════════════════════
 
-    console.log(`⏱️ Auto-Sell scheduled for ${mint}. Strategy: Hold until ${TARGET_CURVE}% Curve or ${TIMEOUT_MS/1000}s Timeout.`);
+    let targetCurve = TARGETS.DEFAULT;
+    let firstCheck = true;
+    let initialLiquiditySol = 0;
+
+    console.log(`⏱️ Auto-Sell scheduled for ${mint}. Checking initial curve...`);
 
     const startTime = Date.now();
     const intervalId = setInterval(async () => {
         const elapsed = Date.now() - startTime;
-        const timeLeft = Math.max(0, Math.ceil((TIMEOUT_MS - elapsed) / 1000));
+        const timeLeft = Math.max(0, Math.ceil((TIMING.TIMEOUT_MS - elapsed) / 1000));
         
         // 1. CHECK BONDING CURVE PROGRESS
         const progress = await getBondingCurveProgress(connection, poolAddress);
         
+        // On first check, determine target based on starting position + record initial liquidity
+        if (firstCheck && progress > 0) {
+            firstCheck = false;
+            
+            // Record initial liquidity
+            const liquidityCheck = await checkPoolLiquidity(connection, poolAddress);
+            initialLiquiditySol = liquidityCheck.liquiditySol;
+            
+            if (progress >= THRESHOLDS.HIGH_CURVE) {
+                targetCurve = TARGETS.HIGH_START;
+                console.log(`🚀 Very high start (${progress.toFixed(1)}% >= ${THRESHOLDS.HIGH_CURVE}%). Target: ${targetCurve}% (push for max!)`);
+            } else if (progress >= THRESHOLDS.MID_CURVE) {
+                targetCurve = TARGETS.MID_START;
+                console.log(`⚡ High start (${progress.toFixed(1)}% >= ${THRESHOLDS.MID_CURVE}%). Target: ${targetCurve}%`);
+            } else {
+                console.log(`📈 Normal start (${progress.toFixed(1)}%). Target: ${targetCurve}%`);
+            }
+            console.log(`💧 Initial Liquidity: ${initialLiquiditySol.toFixed(1)} SOL (spike trigger: +${THRESHOLDS.LIQUIDITY_SPIKE_SOL} SOL)`);
+        }
+        
+        // 1.5 CHECK LIQUIDITY SPIKE (Possible rug setup!)
+        if (initialLiquiditySol > 0) {
+            const currentLiquidity = await checkPoolLiquidity(connection, poolAddress);
+            const liquidityIncrease = currentLiquidity.liquiditySol - initialLiquiditySol;
+            
+            if (liquidityIncrease >= THRESHOLDS.LIQUIDITY_SPIKE_SOL) {
+                console.log(`🚨 LIQUIDITY SPIKE DETECTED! +${liquidityIncrease.toFixed(1)} SOL (${initialLiquiditySol.toFixed(1)} → ${currentLiquidity.liquiditySol.toFixed(1)})`);
+                console.log(`🛡️ EMERGENCY SELL - Possible rug incoming!`);
+                clearInterval(intervalId);
+                executeAutoSellTransaction(mint, poolAddress, connection);
+                return;
+            }
+        }
+        
         // LOG STATUS (Every check)
         if (progress > 0) {
-             console.log(`📊 Curve: ${progress.toFixed(1)}% | ⏱️ ${timeLeft}s remaining (Target: ${TARGET_CURVE}%)`);
+             console.log(`📊 Curve: ${progress.toFixed(1)}% | ⏱️ ${timeLeft}s remaining (Target: ${targetCurve}%)`);
         }
 
-        // 2. CHECK TARGET REACHED (95%)
-        if (progress >= TARGET_CURVE) {
-             console.log(`🚀 Bonding Curve Hit ${progress.toFixed(2)}% (>= ${TARGET_CURVE}%)! EXECUTING PROFIT TAKE...`);
+        // 2. CHECK TARGET REACHED
+        if (progress >= targetCurve) {
+             console.log(`🚀 Bonding Curve Hit ${progress.toFixed(2)}% (>= ${targetCurve}%)! EXECUTING PROFIT TAKE...`);
              clearInterval(intervalId);
              executeAutoSellTransaction(mint, poolAddress, connection);
              return;
         }
 
-        // 3. CHECK TIMEOUT (60s)
-        if (elapsed >= TIMEOUT_MS) {
-             console.log(`⏰ Time's up (60s)! Curve stuck at ${progress.toFixed(1)}%. Selling now.`);
-             clearInterval(intervalId);
+        // 3. CHECK TIMEOUT
+        if (elapsed >= TIMING.TIMEOUT_MS) {
+             console.log(`⏰ Time's up (${TIMING.TIMEOUT_MS/1000}s)! Curve stuck at ${progress.toFixed(1)}%. Selling now.`);
+             clearInterval(intervalId); 
              executeAutoSellTransaction(mint, poolAddress, connection);
              return;
         }
         
-    }, 500); // Poll every 0.5 second
+    }, TIMING.POLL_INTERVAL_MS);
 }
 // Extracted Sell Logic for re-use
 async function executeAutoSellTransaction(mint: string, poolAddress: string, connection: Connection) {
