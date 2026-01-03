@@ -29,6 +29,9 @@ const TIP_AMOUNT_SOL = config.jito.tip_buy_sol;
 // Liquidity Filter: Minimum pool liquidity to avoid high slippage
 const MIN_POOL_LIQUIDITY_SOL = 80; // ~$20,000 at $130/SOL
 
+// DEV Holdings Filter: Maximum dev holdings percentage to avoid rug pulls
+const MAX_DEV_HOLDINGS_PERCENT = 5; // Skip if dev holds more than 5%
+
 // Jito Block Engines
 const BLOCK_ENGINE_URLS = [
     "frankfurt.mainnet.block-engine.jito.wtf",
@@ -123,24 +126,20 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
 
     console.log(`⏳ Processing Pool Creation: ${signature}`);
     try {
-        // Retry Loop for RPC Latency (Identical to meteoraSniper.ts)
+        // Retry Loop (3 attempts - balance between speed and reliability)
         let tx: any = null;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 3; i++) {
             tx = await connection.getParsedTransaction(signature, {
                 maxSupportedTransactionVersion: 0,
                 commitment: "confirmed"
             });
 
-            if (tx && tx.meta) {
-                break; // Found it!
-            }
-
-            console.log(`   Attempt ${i + 1} failed (Tx/Meta missing). Retrying in 1s...`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (tx && tx.meta) break;
+            if (i < 2) await new Promise(resolve => setTimeout(resolve, 300)); // 300ms between retries
         }
 
         if (!tx || !tx.meta) {
-             console.log("❌ Transaction not found after retries. Skipping.");
+             console.log("❌ Transaction data not available after 3 attempts. Skipping.");
              return;
         }
 
@@ -196,6 +195,57 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
         }
 
         console.log(`🎯 SNIPING MINT: ${targetMint}`);
+
+        // DEV BUY CHECK - Check if creator bought tokens in the same TX
+        // This catches cases where DEV creates pool + buys in one transaction
+        console.log(`🔍 Checking for DEV buy in creation TX...`);
+        try {
+            const postBalances = tx.meta.postTokenBalances || [];
+            
+            // Known Meteora DBC Pool Authority
+            const METEORA_POOL_AUTHORITY = "FhVo5GrrEq25XpPLsWsjUfRBLAi9oXCxxDJPoBZRjKYM";
+            
+            // Find token balances for our target mint (excluding pool/program accounts)
+            const relevantBalances = postBalances.filter((b: any) => 
+                b.mint === targetMint && 
+                b.owner !== DBC_PROGRAM_ID &&
+                b.owner !== METEORA_POOL_AUTHORITY &&
+                b.owner !== "11111111111111111111111111111111" && // Exclude system program
+                b.owner !== feePayer // Exclude the TX signer if they're just creating the pool
+            );
+            
+            if (relevantBalances.length > 0) {
+                // Get total supply from mint info
+                const mintPubkey = new PublicKey(targetMint);
+                const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+                const mintData = (mintInfo.value?.data as any)?.parsed?.info;
+                const totalSupply = parseFloat(mintData?.supply || "1000000000000000000");
+                
+                // Check each holder's percentage
+                for (const balance of relevantBalances) {
+                    const amount = parseFloat(balance.uiTokenAmount?.amount || "0");
+                    const percent = (amount / totalSupply) * 100;
+                    
+                    // Only flag if between 5% and 70% (pool usually has >80%)
+                    // This catches DEV buys but not pool deposits
+                    if (percent > MAX_DEV_HOLDINGS_PERCENT && percent < 70) {
+                        console.log(`🛑 SKIPPING: Creator bought ${percent.toFixed(2)}% in creation TX (> ${MAX_DEV_HOLDINGS_PERCENT}% max)`);
+                        console.log(`   Holder: ${balance.owner?.slice(0,4)}...${balance.owner?.slice(-4)}`);
+                        console.log(`   🔗 https://gmgn.ai/sol/token/${targetMint}`);
+                        return;
+                    }
+                    
+                    if (percent > 0.1 && percent < 70) { // Only log significant non-pool holdings
+                        console.log(`   Holder (${balance.owner?.slice(0,4)}...): ${percent.toFixed(2)}% of supply`);
+                    }
+                }
+                console.log(`✅ DEV Buy Check Passed!`);
+            } else {
+                console.log(`   No DEV buy detected in creation TX. ✅`);
+            }
+        } catch (e: any) {
+            console.log(`⚠️ DEV buy check error: ${e.message}. Proceeding with caution.`);
+        }
 
         // SAFETY CHECK: RugCheck (Local or API)
         let isSafe = false;
@@ -332,34 +382,43 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
     }
 }
 
-// Scheduled Auto-Sell (Blind) - Identical to meteoraSniper.ts
+// Scheduled Auto-Sell (Target 95% Curve or 60s Timeout)
 function scheduleAutoSell(mint: string, poolAddress: string, connection: Connection) {
-    const delay = config.sell.auto_sell_delay_ms;
-    console.log(`⏱️ Auto-Sell scheduled for ${mint} in ${delay / 1000}s...`);
+    const TIMEOUT_MS = 180000; // 180 Seconds Max Hold
+    const TARGET_CURVE = 97;  // Sell when curve hits 97%
 
-    // POLLING LOOP: Check every 1s
+    console.log(`⏱️ Auto-Sell scheduled for ${mint}. Strategy: Hold until ${TARGET_CURVE}% Curve or ${TIMEOUT_MS/1000}s Timeout.`);
+
     const startTime = Date.now();
     const intervalId = setInterval(async () => {
         const elapsed = Date.now() - startTime;
+        const timeLeft = Math.max(0, Math.ceil((TIMEOUT_MS - elapsed) / 1000));
         
         // 1. CHECK BONDING CURVE PROGRESS
         const progress = await getBondingCurveProgress(connection, poolAddress);
-        if (progress >= 90) {
-             console.log(`🚀 Bonding Curve at ${progress.toFixed(2)}%! PANIC SELLING to avoid graduation rug...`);
+        
+        // LOG STATUS (Every check)
+        if (progress > 0) {
+             console.log(`📊 Curve: ${progress.toFixed(1)}% | ⏱️ ${timeLeft}s remaining (Target: ${TARGET_CURVE}%)`);
+        }
+
+        // 2. CHECK TARGET REACHED (95%)
+        if (progress >= TARGET_CURVE) {
+             console.log(`🚀 Bonding Curve Hit ${progress.toFixed(2)}% (>= ${TARGET_CURVE}%)! EXECUTING PROFIT TAKE...`);
              clearInterval(intervalId);
              executeAutoSellTransaction(mint, poolAddress, connection);
              return;
         }
 
-        // 2. CHECK TIMER
-        if (elapsed >= delay) {
-             // console.log(`⏰ Time's up! Executing Auto-Sell...`); // Logged inside execute
+        // 3. CHECK TIMEOUT (60s)
+        if (elapsed >= TIMEOUT_MS) {
+             console.log(`⏰ Time's up (60s)! Curve stuck at ${progress.toFixed(1)}%. Selling now.`);
              clearInterval(intervalId);
              executeAutoSellTransaction(mint, poolAddress, connection);
              return;
         }
         
-    }, 500); // Poll every 1 second
+    }, 500); // Poll every 0.5 second
 }
 // Extracted Sell Logic for re-use
 async function executeAutoSellTransaction(mint: string, poolAddress: string, connection: Connection) {
@@ -398,17 +457,21 @@ async function executeAutoSellTransaction(mint: string, poolAddress: string, con
                 
                 // Retry loop for sell (max 5 attempts)
                 let sellConfirmed = false;
+                // RETRY PHASE 1: STANDARD ATTEMPTS (Base Priority Fee)
+                // ----------------------------------------------------
                 const MAX_SELL_ATTEMPTS = 5;
-                
+                const BASE_PRIORITY_FEE = 100000; // ~0.00002 SOL (Standard)
+
                 for (let attempt = 1; attempt <= MAX_SELL_ATTEMPTS; attempt++) {
-                    console.log(`📤 Sell Attempt ${attempt}/${MAX_SELL_ATTEMPTS}...`);
+                    console.log(`📤 Sell Attempt ${attempt}/${MAX_SELL_ATTEMPTS} (Standard Fee)...`);
                     
                     const { signature, error } = await SellService.executeSell(
                         connection,
                         walletKeypair,
                         mint,
                         parseInt(balance),
-                        poolAddress
+                        poolAddress,
+                        BASE_PRIORITY_FEE
                     );
                     
                     // Specific Error Checks
@@ -525,10 +588,9 @@ async function executeAutoSellTransaction(mint: string, poolAddress: string, con
 
                         // AUTO-BURN / RUG HANDLER
                         // If we are at the last attempt and still failing, it's likely a rug/illiquid pool.
-                        // We attempt to burn tokens and close the account to reclaim 0.002 SOL rent.
                         if (attempt === MAX_SELL_ATTEMPTS) {
-                            console.log("❌ SELL FAILED REPEATEDLY. NOT BURNING - Manual Intervention Required.");
-                            sellConfirmed = true; // Stop retrying
+                            console.log("⚠️ Standard Sells Failed. Moving to High Priority Phase...");
+                            // Don't set sellConfirmed = true here, so we enter Phase 2
                             break;
                         }
 
@@ -539,8 +601,63 @@ async function executeAutoSellTransaction(mint: string, poolAddress: string, con
                     }
                 }
                 
+                // RETRY PHASE 2: HIGH PRIORITY RESCUE (Boosted Fee)
+                // -------------------------------------------------
                 if (!sellConfirmed) {
-                    console.log(`❌ CRITICAL: Auto-Sell failed after ${MAX_SELL_ATTEMPTS} attempts. Manual intervention required.`);
+                     console.log("🚨 Initiating HIGH PRIORITY RESCUE MODE (5 Attempts)...");
+                     const HIGH_PRIORITY_FEE = 1000000; // ~0.001 SOL (50x Standard)
+
+                     for (let attempt = 1; attempt <= 5; attempt++) {
+                        console.log(`🚨 Rescue Attempt ${attempt}/5 (High Priority: ${HIGH_PRIORITY_FEE/1000}k)...`);
+                        
+                        const { signature, error } = await SellService.executeSell(
+                            connection,
+                            walletKeypair,
+                            mint,
+                            parseInt(balance),
+                            poolAddress,
+                            HIGH_PRIORITY_FEE
+                        );
+
+                        // Check for Migration immediately
+                         if (error === "PoolIsCompleted") {
+                             console.log("🛑 POOL COMPLETED during Rescue Mode.");
+                             console.log("   🚀 Attempting Direct DAMM v2 Sell (Rescue)...");
+                             const { executeDAMMv2Sell } = await import("./dammSell");
+                             const dammSignature = await executeDAMMv2Sell(connection, walletKeypair, mint, parseInt(balance));
+                             if (dammSignature) {
+                                 const confirmed = await confirmTransactionInclusion(connection, dammSignature, 20);
+                                 if (confirmed) {
+                                     console.log("   ✅ DAMM v2 Sell Confirmed (Rescue)!");
+                                     sellConfirmed = true;
+                                     break;
+                                 }
+                             }
+                             // Fallback to Jupiter Race Mode handled inside DAMM log (if we added it there) or stop here.
+                             // For now, if DAMM fails here, we break phase 2.
+                             break;
+                         }
+
+                        if (signature) {
+                            console.log(`   ✅ Sell Tx Sent: ${signature}`);
+                            const confirmed = await confirmTransactionInclusion(connection, signature);
+                            if (confirmed) {
+                                console.log("   ✅ Sell Confirmed (Rescue)!");
+                                sellConfirmed = true;
+                                break;
+                            } else {
+                                console.log("   ❌ Rescue Confirmation Timed Out.");
+                            }
+                        } else {
+                             console.log(`   ❌ Rescue Sell Failed: ${error}`);
+                        }
+                        
+                        if (!sellConfirmed && attempt < 5) await new Promise(r => setTimeout(r, 1000));
+                     }
+                }
+
+                if (!sellConfirmed) {
+                    console.log(`❌ CRITICAL: Sell failed after ALL attempts (Standard + Rescue). Manual intervention required.`);
                 } else {
                     console.log("✅ Sell completed successfully!");
                 }

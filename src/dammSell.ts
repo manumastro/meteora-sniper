@@ -30,17 +30,29 @@ export async function executeDAMMv2Sell(
 
         const tokenMint = new PublicKey(mint);
 
-        // 2. Find the migrated pool by token mint (try tokenA first, then tokenB)
+        // 2. Find the migrated pool by token mint
         console.log(`   🔍 Searching for DAMM v2 pool with token ${mint.slice(0, 8)}...`);
         
+        // Try searching by tokenA first
         let poolStates = await cpAmm.fetchPoolStatesByTokenAMint(tokenMint);
         
-        // If not found as tokenA, search as tokenB (SOL is usually tokenA)
+        // If not found, try deriving the pool address directly (SOL as tokenA, token as tokenB)
         if (poolStates.length === 0) {
-            console.log("   🔍 Not found as tokenA, searching as tokenB...");
-            // Fetch all pools and filter by tokenBMint (less efficient but necessary)
-            const allPools = await cpAmm.getAllPools();
-            poolStates = allPools.filter(p => p.account.tokenBMint.equals(tokenMint));
+            console.log("   🔍 Not found as tokenA. Trying to derive pool address...");
+            try {
+                const { derivePoolAddress, CP_AMM_PROGRAM_ID } = await import("@meteora-ag/cp-amm-sdk");
+                // Most migrated pools have SOL as tokenA and the token as tokenB
+                const derivedPool = derivePoolAddress(WSOL_MINT, tokenMint, CP_AMM_PROGRAM_ID);
+                console.log(`   🔎 Checking derived pool: ${derivedPool.toBase58().slice(0, 12)}...`);
+                
+                const exists = await cpAmm.isPoolExist(derivedPool);
+                if (exists) {
+                    const poolState = await cpAmm.fetchPoolState(derivedPool);
+                    poolStates = [{ publicKey: derivedPool, account: poolState }];
+                }
+            } catch (deriveError: any) {
+                console.log(`   ⚠️ Pool derivation failed: ${deriveError.message.slice(0, 50)}`);
+            }
         }
 
         if (poolStates.length === 0) {

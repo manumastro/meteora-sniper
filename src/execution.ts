@@ -296,7 +296,8 @@ export async function executeDBCSwap(
     tokenOutMint: string, // Target token mint
     amountIn: number,
     slippagePct: number = 5,
-    closeTokenAccount: boolean = false // New param to reclaim rent on sell
+    closeTokenAccount: boolean = false, // New param to reclaim rent on sell
+    priorityFeeMicroLamports: number = 100000 // Priority fee in microLamports (default 100k)
 ): Promise<{ signature: string | null; error?: string }> {
     try {
         console.log(`🔄 Building DBC Swap Transaction...`);
@@ -342,7 +343,7 @@ export async function executeDBCSwap(
         // PRIORITY FEES: Critical for landing transactions during congestion
         // Add Compute Budget instructions at the START of the transaction
         const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-            microLamports: 100000 // High priority (adjust based on network conditions)
+            microLamports: priorityFeeMicroLamports
         });
         const computeLimitIx = ComputeBudgetProgram.setComputeUnitLimit({
             units: 200000 // Reasonable limit for DEX swap

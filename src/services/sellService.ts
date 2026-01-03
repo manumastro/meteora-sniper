@@ -12,7 +12,8 @@ export class SellService {
     walletKeypair: Keypair,
     mint: string,
     amount: number,
-    poolAddress: string
+    poolAddress: string,
+    priorityFeeMicroLamports: number = 100000 // Default 100k, can escalate on retries
   ): Promise<{ signature: string | null; error?: string }> {
     
     if (!poolAddress) {
@@ -39,7 +40,8 @@ export class SellService {
             wsol,     // Buying WSOL (Token Out)
             amountInt,// Amount of Token to sell
             50.0,     // High slippage for sell
-            true      // Close Token Account to reclaim rent
+            true,     // Close Token Account to reclaim rent
+            priorityFeeMicroLamports // Pass priority fee
         );
         return result;
 
