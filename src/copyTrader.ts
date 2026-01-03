@@ -26,6 +26,9 @@ const BLACKLISTED_CREATORS = [
 const TRADE_AMOUNT_SOL = 0.01; 
 const TIP_AMOUNT_SOL = config.jito.tip_buy_sol;
 
+// Liquidity Filter: Minimum pool liquidity to avoid high slippage
+const MIN_POOL_LIQUIDITY_SOL = 80; // ~$20,000 at $130/SOL
+
 // Jito Block Engines
 const BLOCK_ENGINE_URLS = [
     "frankfurt.mainnet.block-engine.jito.wtf",
@@ -242,6 +245,14 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
              return;
         }
 
+        // CHECK POOL LIQUIDITY (Skip if too low)
+        console.log(`🔍 Checking Pool Liquidity...`);
+        const liquidityCheck = await checkPoolLiquidity(connection, poolAddress);
+        if (!liquidityCheck.isValid) {
+            console.log(`🛑 SKIPPING: Pool liquidity too low (${liquidityCheck.liquiditySol.toFixed(2)} SOL < ${MIN_POOL_LIQUIDITY_SOL} SOL)`);
+            return;
+        }
+
         console.log(`🚀 Sending Buy Bundle for ${targetMint} on Pool ${poolAddress}...`);
 
         const { signature: swapSignature, error: buyError } = await executeDBCSwap(
@@ -326,36 +337,61 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
     const delay = config.sell.auto_sell_delay_ms;
     console.log(`⏱️ Auto-Sell scheduled for ${mint} in ${delay / 1000}s...`);
 
-    setTimeout(async () => {
-        console.log(`⏰ Executing Auto-Sell for ${mint}...`);
-
-        if (config.dry_run) {
-            console.log(`🛑 DRY RUN: Simulated Auto-Sell Execution for ${mint}`);
-            return;
+    // POLLING LOOP: Check every 1s
+    const startTime = Date.now();
+    const intervalId = setInterval(async () => {
+        const elapsed = Date.now() - startTime;
+        
+        // 1. CHECK BONDING CURVE PROGRESS
+        const progress = await getBondingCurveProgress(connection, poolAddress);
+        if (progress >= 90) {
+             console.log(`🚀 Bonding Curve at ${progress.toFixed(2)}%! PANIC SELLING to avoid graduation rug...`);
+             clearInterval(intervalId);
+             executeAutoSellTransaction(mint, poolAddress, connection);
+             return;
         }
 
-        try {
-            // Retry fetching balance for up to 3 times (RPC Latency correction)
-            let balance = "0";
-            let uiBalance = 0;
+        // 2. CHECK TIMER
+        if (elapsed >= delay) {
+             // console.log(`⏰ Time's up! Executing Auto-Sell...`); // Logged inside execute
+             clearInterval(intervalId);
+             executeAutoSellTransaction(mint, poolAddress, connection);
+             return;
+        }
+        
+    }, 500); // Poll every 1 second
+}
+// Extracted Sell Logic for re-use
+async function executeAutoSellTransaction(mint: string, poolAddress: string, connection: Connection) {
+    console.log(`⏰ Executing Auto-Sell for ${mint}...`);
 
-            for (let i = 0; i < 10; i++) {
-                if (i > 0) console.log(`   ⏳ Checking balance (Attempt ${i + 1}/10)...`);
+    if (config.dry_run) {
+        console.log(`🛑 DRY RUN: Simulated Auto-Sell Execution for ${mint}`);
+        return;
+    }
 
-                try {
-                    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: new PublicKey(mint) });
-                    const accountData = tokenAccounts.value[0]?.account.data.parsed.info.tokenAmount;
-                    if (accountData && accountData.uiAmount > 0) {
-                        balance = accountData.amount;
-                        uiBalance = accountData.uiAmount;
-                        break; // Found balance!
-                    }
-                } catch (e) {
-                    // Ignore RPC errors during balance check (e.g. mint not found yet)
+    try {
+        // Retry fetching balance for up to 3 times (RPC Latency correction)
+        let balance = "0";
+        let uiBalance = 0;
+
+        for (let i = 0; i < 10; i++) {
+            if (i > 0) console.log(`   ⏳ Checking balance (Attempt ${i + 1}/10)...`);
+
+            try {
+                const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: new PublicKey(mint) });
+                const accountData = tokenAccounts.value[0]?.account.data.parsed.info.tokenAmount;
+                if (accountData && accountData.uiAmount > 0) {
+                    balance = accountData.amount;
+                    uiBalance = accountData.uiAmount;
+                    break; // Found balance!
                 }
-                
-                if (i < 9) await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+            } catch (e) {
+                // Ignore RPC errors during balance check (e.g. mint not found yet)
             }
+            
+            if (i < 9) await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+        }
 
             if (uiBalance > 0) {
                 console.log(`🚀 Selling ${uiBalance} tokens...`);
@@ -378,55 +414,74 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
                     // Specific Error Checks
                     if (error === "PoolIsCompleted") {
                          console.log("🛑 POOL COMPLETED! Token has migrated/graduated.");
-                         console.log("   🚀 Attempting Emergency Exit via Jupiter (Jito)...");
-                         
-                         // Fallback to Jupiter Sell
-                         // HARDCODED TIP ACCOUNT TO PREVENT "Non-base58" ERRORS
-                         const tipAccount = "96gYZGLnJFVFtHgZEUMu41FXu5N7QJ9kgD7rpq2LqR53"; 
-                         
-                         console.log(`   💡 Using Tip Account: ${tipAccount}`);
+                         console.log("   🚀 Attempting Direct DAMM v2 Sell...");
 
-                         const jupSignature = await executeJupiterSell(
-                            connection,
-                            jitoClients,
-                            walletKeypair,
-                            mint,
-                            parseInt(balance), 
-                            Math.floor(TIP_AMOUNT_SOL * 1e9),
-                            tipAccount
-                         );
+                         // Import the new DAMM v2 sell function
+                         const { executeDAMMv2Sell } = await import("./dammSell");
 
-                         if (jupSignature) {
-                             console.log(`✅ Jupiter Emergency Sell Sent: ${jupSignature}`);
-                             console.log(`⏳ Verifying Jupiter confirmation...`);
-                             const jupConfirmed = await confirmTransactionInclusion(connection, jupSignature, 60);
-                             if (jupConfirmed) {
-                                  console.log(`✅ Jupiter Sell Confirmed! Saved from graduation.`);
-                                  sellConfirmed = true; 
-                                  break;
-                             } else {
-                                  console.log("❌ Jupiter Sell Timed Out.");
-                                  // Don't break immediately, maybe retry handled by manual logic? 
-                                  // Actually, for graduation we should probably stop after one good try or manual intervention.
-                                  // Unlocking to be safe.
-                                  sellConfirmed = true; 
-                                  break;
-                             }
-                         } else {
-                             console.log("❌ Jupiter Sell Failed (No Route/Jito Error).");
-                             console.log("   📉 Attempting Auto-Burn to reclaim rent...");
-                             
-                             const burnSig = await executeBurnAndClose(connection, walletKeypair, mint);
-                             if (burnSig) {
-                                 console.log(`✅ Auto-Burn Successful: https://solscan.io/tx/${burnSig}`);
-                                 console.log("   Rent reclaimed. Position closed.");
-                             } else {
-                                console.log("❌ Auto-Burn Failed. Manual intervention required.");
-                             }
-                             
-                             sellConfirmed = true; // Stop DBC retrying
-                             break; 
+                         // RETRY LOOP (5 Attempts for DAMM v2)
+                         let sold = false;
+                         for (let j = 0; j < 5; j++) {
+                            console.log(`   🔄 DAMM v2 Attempt ${j+1}/5...`);
+                            
+                            const dammSignature = await executeDAMMv2Sell(
+                                connection,
+                                walletKeypair,
+                                mint,
+                                parseInt(balance)
+                            );
+
+                            if (dammSignature) {
+                                console.log(`   ✅ DAMM v2 Tx Sent: ${dammSignature}`);
+                                const confirmed = await confirmTransactionInclusion(connection, dammSignature, 20);
+                                if (confirmed) {
+                                    console.log("   ✅ DAMM v2 Sell Confirmed! Saved from graduation.");
+                                    sold = true;
+                                    break;
+                                }
+                            }
+                            
+                            // Wait before retry
+                            await new Promise(r => setTimeout(r, 1000));
                          }
+
+                         // FALLBACK to Jupiter if DAMM v2 failed
+                         if (!sold) {
+                             console.log("   ⚠️ DAMM v2 Failed. Falling back to Jupiter...");
+                             const tipAccount = "96gYZGLnJFVFtHgZEUMu41FXu5N7QJ9kgD7rpq2LqR53";
+                             
+                             for (let j = 0; j < 10; j++) {
+                                console.log(`   🪐 Jupiter Attempt ${j+1}/10...`);
+                                
+                                const jupSignature = await executeJupiterSell(
+                                    connection,
+                                    jitoClients,
+                                    walletKeypair,
+                                    mint,
+                                    parseInt(balance), 
+                                    Math.floor(TIP_AMOUNT_SOL * 1e9),
+                                    tipAccount
+                                );
+
+                                if (jupSignature) {
+                                    const confirmed = await confirmTransactionInclusion(connection, jupSignature, 20);
+                                    if (confirmed) {
+                                        console.log("   ✅ Jupiter Sell Confirmed!");
+                                        sold = true;
+                                        break;
+                                    }
+                                }
+                                
+                                await new Promise(r => setTimeout(r, 2000));
+                             }
+                         }
+
+                         if (!sold) {
+                             console.log("❌ All Sell Attempts Failed. Manual intervention required. NOT BURNING.");
+                         }
+                         
+                         sellConfirmed = true; 
+                         break;
                     }
                     
                     if (signature) {
@@ -472,18 +527,9 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
                         // If we are at the last attempt and still failing, it's likely a rug/illiquid pool.
                         // We attempt to burn tokens and close the account to reclaim 0.002 SOL rent.
                         if (attempt === MAX_SELL_ATTEMPTS) {
-                            console.log("🔥 SELL FAILED REPEATEDLY (Likely Rugged). Initiating Auto-Burn protocol...");
-                            console.log("   📉 Burning tokens to reclaim Rent (0.002 SOL)...");
-                            
-                            const burnSig = await executeBurnAndClose(connection, walletKeypair, mint);
-                            if (burnSig) {
-                                console.log(`✅ Auto-Burn Successful: https://solscan.io/tx/${burnSig}`);
-                                console.log("   Rent reclaimed. Position closed.");
-                                sellConfirmed = true; // Technically confirmed as "handled"
-                                break;
-                            } else {
-                                console.log("❌ Auto-Burn Failed. Requires manual intervention.");
-                            }
+                            console.log("❌ SELL FAILED REPEATEDLY. NOT BURNING - Manual Intervention Required.");
+                            sellConfirmed = true; // Stop retrying
+                            break;
                         }
 
                         if (attempt < MAX_SELL_ATTEMPTS) {
@@ -507,8 +553,6 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
             console.log("🔓 Position Closed. Resume scanning.");
             isPositionOpen = false;
         }
-
-    }, delay);
 }
 
 // Confirm Transaction Inclusion using Polling (Copied from meteoraSniper.ts)
@@ -517,6 +561,10 @@ async function confirmTransactionInclusion(connection: Connection, signature: st
     for (let i = 0; i < maxRetries; i++) {
         const status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
         if (status.value?.confirmationStatus === "confirmed" || status.value?.confirmationStatus === "finalized") {
+            if (status.value.err) {
+                console.log(`❌ Transaction Confirmed but FAILED: ${JSON.stringify(status.value.err)}`);
+                return false;
+            }
             console.log(`✅ Transaction Confirmed! (Status: ${status.value.confirmationStatus})`);
             return true;
         }
@@ -526,12 +574,68 @@ async function confirmTransactionInclusion(connection: Connection, signature: st
     return false;
 }
 
+// Check Pool Liquidity Helper
+async function checkPoolLiquidity(connection: Connection, poolAddress: string): Promise<{ isValid: boolean; liquiditySol: number }> {
+    try {
+        const { StateService } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
+        
+        const stateService = new StateService(connection, 'confirmed');
+        const poolData = await stateService.getPool(poolAddress);
+        
+        // Get quote reserves (SOL/WSOL liquidity in the pool)
+        // quoteReserve is a BN (BigNumber) object
+        const quoteReserve = poolData.quoteReserve;
+        const liquiditySol = Number(quoteReserve.toString()) / 1e9; // Convert lamports to SOL
+        
+        console.log(`💧 Pool Liquidity: ${liquiditySol.toFixed(2)} SOL ($${(liquiditySol * 130).toFixed(0)})`);
+        
+        if (liquiditySol < MIN_POOL_LIQUIDITY_SOL) {
+            console.log(`🛑 LIQUIDITY TOO LOW! Required: ${MIN_POOL_LIQUIDITY_SOL} SOL, Found: ${liquiditySol.toFixed(2)} SOL`);
+            return { isValid: false, liquiditySol };
+        }
+        
+        console.log(`✅ Liquidity Check Passed!`);
+        return { isValid: true, liquiditySol };
+        
+    } catch (e: any) {
+        console.error(`❌ Failed to check pool liquidity: ${e.message}`);
+        // If we can't check, we assume it's risky and skip
+        return { isValid: false, liquiditySol: 0 };
+    }
+}
+
 // Check Balance Helper
 async function checkBalance(connection: Connection, walletPubkey: PublicKey, mint: string): Promise<number> {
     try {
         const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletPubkey, { mint: new PublicKey(mint) });
         return tokenAccounts.value[0]?.account.data.parsed.info.tokenAmount.uiAmount || 0;
     } catch {
+        return 0;
+    }
+}
+
+// Check Bonding Curve Progress
+async function getBondingCurveProgress(connection: Connection, poolAddress: string): Promise<number> {
+    try {
+        const { StateService } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
+        const stateService = new StateService(connection, 'confirmed');
+        const poolData = await stateService.getPool(poolAddress);
+        
+        if (!poolData || !poolData.config) return 0;
+
+        // Fetch config to get migration threshold
+        const configData = await stateService.getPoolConfig(poolData.config);
+        
+        const quoteReserve = Number(poolData.quoteReserve.toString());
+        const migrationThreshold = Number(configData.migrationQuoteThreshold.toString());
+        
+        if (migrationThreshold === 0) return 0;
+        
+        const progress = (quoteReserve / migrationThreshold) * 100;
+        return progress;
+        
+    } catch (e: any) {
+        // console.error(`⚠️ Failed to check curve progress: ${e.message}`); // Verbose
         return 0;
     }
 }

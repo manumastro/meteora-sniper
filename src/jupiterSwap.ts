@@ -64,58 +64,60 @@ export async function executeJupiterSell(
         const tipVersionedTx = new VersionedTransaction(tipTransaction.compileMessage());
         tipVersionedTx.sign([wallet]);
 
-        // 4. Send via Jito (Primary)
-        console.log(`   📦 Sending via Jito...`);
+        // 4. PARALLEL EXECUTION (Race Mode)
+        // We fire Jito Bundles to ALL engines AND Direct RPC simultaneously.
+        // The first one to succeed wins. This eliminates the 20s delay.
+
+        const strategies: Promise<string>[] = [];
         const BLOCK_ENGINE_URLS = Array.from(jitoClients.keys());
-        let bundleId = null;
 
-        for (const engineUrl of BLOCK_ENGINE_URLS) {
-            try {
-                // @ts-ignore
-                const searcher = jitoClients.get(engineUrl);
-                
-                // Bundling Jupiter Swap + Jito Tip
-                const bundle = new Bundle([jupTransaction, tipVersionedTx], 5);
-                
-                // Add Timeout to prevent hanging
-                const result = await Promise.race([
-                    searcher.sendBundle(bundle),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Jito Timeout")), 5000))
-                ]);
-
-                if (result) {
-                    // Jito-ts types are messy, checking valid response
+        // A. Jito Strategies
+        BLOCK_ENGINE_URLS.forEach(engineUrl => {
+            strategies.push((async () => {
+                try {
                     // @ts-ignore
-                    bundleId = result.value || result; 
-                    console.log(`✅ Jupiter Sell sent via ${engineUrl}: ${bundleId}`);
-                    // Return immediately if Jito succeeds
-                    return bundleId;
+                    const searcher = jitoClients.get(engineUrl);
+                    const bundle = new Bundle([jupTransaction, tipVersionedTx], 5);
+                    const result = await searcher.sendBundle(bundle);
+                    if (result) {
+                         // @ts-ignore
+                        const bundleId = result.value || result; 
+                        console.log(`✅ Jupiter Sell sent via ${engineUrl}: ${bundleId}`);
+                        return bundleId;
+                    }
+                    throw new Error("Jito No Result");
+                } catch (e: any) {
+                    // console.log(`   (Debug) Jito ${engineUrl} failed: ${e.message}`);
+                    throw e;
                 }
-            } catch (e) {
-                console.log(`   Jupiter/Jito Failed via ${engineUrl}. Trying next...`);
-            }
-        }
+            })());
+        });
 
-        // 5. RPC Fallback (If Jito Failed)
-        if (!bundleId) {
-            console.log("⚠️ Jito failed or no engines. Attempting Direct RPC...");
+        // B. Direct RPC Strategy
+        strategies.push((async () => {
             try {
-                // Send standard Jupiter TX (Without tip arg usually, but Jup TX is signed)
-                // Note: Jup TX already includes priority fees from API
+                // console.log("   🚀 Sending Parallel Direct RPC...");
                 const rawTransaction = jupTransaction.serialize();
                 const txid = await connection.sendRawTransaction(rawTransaction, {
                     skipPreflight: true,
-                    maxRetries: 2
+                    maxRetries: 0 // Don't retry purely, let others race
                 });
                 console.log(`✅ Jupiter Sell sent via RPC: ${txid}`);
                 return txid;
             } catch (rpcError: any) {
-                 console.error("❌ RPC Fallback Failed:", rpcError.message);
-                 return null;
+                 // console.error("   (Debug) RPC failed:", rpcError.message);
+                 throw rpcError;
             }
-        }
+        })());
 
-        return bundleId;
+        try {
+            console.log(`   🏁 Racing ${strategies.length} submission strategies...`);
+            const winner = await Promise.any(strategies);
+            return winner;
+        } catch (aggregatedError) {
+            console.error("❌ All Jupiter Sell strategies failed.", aggregatedError);
+            return null;
+        }
 
     } catch (e: any) {
         console.error("❌ Jupiter Sell Failed:", e.message);
