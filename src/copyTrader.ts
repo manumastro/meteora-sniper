@@ -11,26 +11,50 @@ import { getRugCheckConfirmed } from "./utils/rugCheck";
 
 dotenv.config();
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🎛️ CONFIGURATION - MODIFY THESE VALUES AS NEEDED
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// Configuration from User Request & Analysis
+const CONFIG = {
+    // 💰 TRADING
+    TRADE_AMOUNT_SOL: 0.001,              // Amount to buy per snipe
+    
+    // 🔒 ENTRY FILTERS
+    MIN_POOL_LIQUIDITY_SOL: 50,          // Minimum liquidity to enter
+    MAX_DEV_HOLDINGS_PERCENT: 5,         // Skip if dev holds more than this %
+    MAX_BONDING_CURVE_PERCENT: 88,       // Skip if curve already above this %
+    
+    // 🎯 SELL TARGETS (Bonding Curve %)
+    TARGET_DEFAULT: 90,                  // Normal target (curve < 90%)
+    TARGET_MID_START: 92,                // Target when starting 90-92%
+    TARGET_HIGH_START: 94,               // Target when starting > 92%
+    
+    // 📊 SELL THRESHOLDS
+    THRESHOLD_MID_CURVE: 90,             // Above this → use TARGET_MID_START
+    THRESHOLD_HIGH_CURVE: 92,            // Above this → use TARGET_HIGH_START
+    
+    // ⏱️ TIMING
+    TIMEOUT_MS: 120000,                  // Max hold time (120 seconds)
+    POLL_INTERVAL_MS: 600,               // Poll every 500ms
+    
+    // 🚨 EMERGENCY SELL TRIGGERS
+    LIQUIDITY_SPIKE_SOL: 40,             // Sell if liquidity increases by this much
+    STALE_CURVE_THRESHOLD_PERCENT: 0.1,    // Min curve movement required
+    STALE_CURVE_TIMEOUT_MS: 5000,        // Time without movement before selling (5 seconds)
+};
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Program IDs & Constants
 const DBC_PROGRAM_ID = "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"; 
 const WSOL = config.wsol_pc_mint;
-
-// Blacklist: Creators to avoid (e.g., "Bags: Token Authority")
-const BLACKLISTED_CREATORS = [
-    "BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv", // Bags: Token Authority
-    // Add more addresses here as needed
-];
-
-// Investment settings (Hardcoded based on typical sniper needs or config)
-const TRADE_AMOUNT_SOL = 0.01; 
 const TIP_AMOUNT_SOL = config.jito.tip_buy_sol;
 
-// Liquidity Filter: Minimum pool liquidity to avoid high slippage
-const MIN_POOL_LIQUIDITY_SOL = 80; // ~$20,000 at $130/SOL
-
-// DEV Holdings Filter: Maximum dev holdings percentage to avoid rug pulls
-const MAX_DEV_HOLDINGS_PERCENT = 5; // Skip if dev holds more than 5%
+// Blacklist: Creators to avoid
+const BLACKLISTED_CREATORS = [
+    "BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv", // Bags: Token Authority
+];
 
 // Jito Block Engines
 const BLOCK_ENGINE_URLS = [
@@ -88,7 +112,7 @@ async function startDBCSniper() {
     console.log("🔥 STARTING METEORA DBC SNIPER (Clone of Main Sniper) 🔥");
     console.log(`target program: ${DBC_PROGRAM_ID}`);
     console.log(`Wallet: ${walletKeypair.publicKey.toBase58()}`);
-    console.log(`Amount: ${TRADE_AMOUNT_SOL} SOL`);
+    console.log(`Amount: ${CONFIG.TRADE_AMOUNT_SOL} SOL`);
 
     await initJitoClients();
 
@@ -126,20 +150,20 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
 
     console.log(`⏳ Processing Pool Creation: ${signature}`);
     try {
-        // Retry Loop (3 attempts - balance between speed and reliability)
+        // Retry Loop (2 attempts - fast)
         let tx: any = null;
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 2; i++) {
             tx = await connection.getParsedTransaction(signature, {
                 maxSupportedTransactionVersion: 0,
                 commitment: "confirmed"
             });
 
             if (tx && tx.meta) break;
-            if (i < 2) await new Promise(resolve => setTimeout(resolve, 300)); // 300ms between retries
+            if (i < 1) await new Promise(resolve => setTimeout(resolve, 100)); // 100ms between retries (fast)
         }
 
         if (!tx || !tx.meta) {
-             console.log("❌ Transaction data not available after 3 attempts. Skipping.");
+             console.log("❌ Transaction data not available after 2 attempts. Skipping.");
              return;
         }
 
@@ -227,8 +251,8 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
                     
                     // Only flag if between 5% and 70% (pool usually has >80%)
                     // This catches DEV buys but not pool deposits
-                    if (percent > MAX_DEV_HOLDINGS_PERCENT && percent < 70) {
-                        console.log(`🛑 SKIPPING: Creator bought ${percent.toFixed(2)}% in creation TX (> ${MAX_DEV_HOLDINGS_PERCENT}% max)`);
+                    if (percent > CONFIG.MAX_DEV_HOLDINGS_PERCENT && percent < 70) {
+                        console.log(`🛑 SKIPPING: Creator bought ${percent.toFixed(2)}% in creation TX (> ${CONFIG.MAX_DEV_HOLDINGS_PERCENT}% max)`);
                         console.log(`   Holder: ${balance.owner?.slice(0,4)}...${balance.owner?.slice(-4)}`);
                         console.log(`   🔗 https://gmgn.ai/sol/token/${targetMint}`);
                         return;
@@ -298,9 +322,19 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
         console.log(`🔍 Checking Pool Liquidity...`);
         const liquidityCheck = await checkPoolLiquidity(connection, poolAddress);
         if (!liquidityCheck.isValid) {
-            console.log(`🛑 SKIPPING: Pool liquidity too low (${liquidityCheck.liquiditySol.toFixed(2)} SOL < ${MIN_POOL_LIQUIDITY_SOL} SOL)`);
+            console.log(`🛑 SKIPPING: Pool liquidity too low (${liquidityCheck.liquiditySol.toFixed(2)} SOL < ${CONFIG.MIN_POOL_LIQUIDITY_SOL} SOL)`);
             return;
         }
+
+        // CHECK BONDING CURVE (Skip if already too high - late entry)
+        console.log(`🔍 Checking Bonding Curve...`);
+        const currentCurve = await getBondingCurveProgress(connection, poolAddress);
+        if (currentCurve > CONFIG.MAX_BONDING_CURVE_PERCENT) {
+            console.log(`🛑 SKIPPING: Curve already at ${currentCurve.toFixed(1)}% (> ${CONFIG.MAX_BONDING_CURVE_PERCENT}% max entry)`);
+            console.log(`   🔗 https://gmgn.ai/sol/token/${targetMint}`);
+            return;
+        }
+        console.log(`✅ Curve at ${currentCurve.toFixed(1)}% - Entry OK!`);
 
         console.log(`🚀 Sending Buy Bundle for ${targetMint} on Pool ${poolAddress}...`);
 
@@ -310,7 +344,7 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
             poolAddress,
             WSOL,
             targetMint, // Output token
-            Math.floor(TRADE_AMOUNT_SOL * 1e9),
+            Math.floor(CONFIG.TRADE_AMOUNT_SOL * 1e9),
             50.0 // Max slippage for snipes
         );
 
@@ -384,39 +418,18 @@ async function handleNewPool(connection: Connection, signature: string, sellServ
 // Scheduled Auto-Sell (Dynamic Target System)
 function scheduleAutoSell(mint: string, poolAddress: string, connection: Connection) {
     
-    // ═══════════════════════════════════════════════════════════════
-    // SELL STRATEGY CONFIGURATION
-    // ═══════════════════════════════════════════════════════════════
-    
-    const TIMING = {
-        TIMEOUT_MS: 120000,        // 120 Seconds Max Hold
-        POLL_INTERVAL_MS: 600      // Poll every 600ms
-    };
-    
-    const TARGETS = {
-        DEFAULT: 96,               // Normal target (curve < 90%)
-        MID_START: 92,             // Target when starting 90-92%
-        HIGH_START: 96             // Target when starting > 92%
-    };
-    
-    const THRESHOLDS = {
-        MID_CURVE: 90,             // Above this → use MID_START target
-        HIGH_CURVE: 92,            // Above this → use HIGH_START target
-        LIQUIDITY_SPIKE_SOL: 50    // Sell if liquidity increases by this much
-    };
-    
-    // ═══════════════════════════════════════════════════════════════
-
-    let targetCurve = TARGETS.DEFAULT;
+    let targetCurve = CONFIG.TARGET_DEFAULT;
     let firstCheck = true;
     let initialLiquiditySol = 0;
+    let lastCurveProgress = 0;
+    let lastCurveChangeTime = Date.now();
 
     console.log(`⏱️ Auto-Sell scheduled for ${mint}. Checking initial curve...`);
 
     const startTime = Date.now();
     const intervalId = setInterval(async () => {
         const elapsed = Date.now() - startTime;
-        const timeLeft = Math.max(0, Math.ceil((TIMING.TIMEOUT_MS - elapsed) / 1000));
+        const timeLeft = Math.max(0, Math.ceil((CONFIG.TIMEOUT_MS - elapsed) / 1000));
         
         // 1. CHECK BONDING CURVE PROGRESS
         const progress = await getBondingCurveProgress(connection, poolAddress);
@@ -424,21 +437,23 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
         // On first check, determine target based on starting position + record initial liquidity
         if (firstCheck && progress > 0) {
             firstCheck = false;
+            lastCurveProgress = progress;
+            lastCurveChangeTime = Date.now();
             
             // Record initial liquidity
             const liquidityCheck = await checkPoolLiquidity(connection, poolAddress);
             initialLiquiditySol = liquidityCheck.liquiditySol;
             
-            if (progress >= THRESHOLDS.HIGH_CURVE) {
-                targetCurve = TARGETS.HIGH_START;
-                console.log(`🚀 Very high start (${progress.toFixed(1)}% >= ${THRESHOLDS.HIGH_CURVE}%). Target: ${targetCurve}% (push for max!)`);
-            } else if (progress >= THRESHOLDS.MID_CURVE) {
-                targetCurve = TARGETS.MID_START;
-                console.log(`⚡ High start (${progress.toFixed(1)}% >= ${THRESHOLDS.MID_CURVE}%). Target: ${targetCurve}%`);
+            if (progress >= CONFIG.THRESHOLD_HIGH_CURVE) {
+                targetCurve = CONFIG.TARGET_HIGH_START;
+                console.log(`🚀 Very high start (${progress.toFixed(1)}% >= ${CONFIG.THRESHOLD_HIGH_CURVE}%). Target: ${targetCurve}%`);
+            } else if (progress >= CONFIG.THRESHOLD_MID_CURVE) {
+                targetCurve = CONFIG.TARGET_MID_START;
+                console.log(`⚡ High start (${progress.toFixed(1)}% >= ${CONFIG.THRESHOLD_MID_CURVE}%). Target: ${targetCurve}%`);
             } else {
                 console.log(`📈 Normal start (${progress.toFixed(1)}%). Target: ${targetCurve}%`);
             }
-            console.log(`💧 Initial Liquidity: ${initialLiquiditySol.toFixed(1)} SOL (spike trigger: +${THRESHOLDS.LIQUIDITY_SPIKE_SOL} SOL)`);
+            console.log(`💧 Initial Liquidity: ${initialLiquiditySol.toFixed(1)} SOL (spike trigger: +${CONFIG.LIQUIDITY_SPIKE_SOL} SOL)`);
         }
         
         // 1.5 CHECK LIQUIDITY SPIKE (Possible rug setup!)
@@ -446,12 +461,29 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
             const currentLiquidity = await checkPoolLiquidity(connection, poolAddress);
             const liquidityIncrease = currentLiquidity.liquiditySol - initialLiquiditySol;
             
-            if (liquidityIncrease >= THRESHOLDS.LIQUIDITY_SPIKE_SOL) {
+            if (liquidityIncrease >= CONFIG.LIQUIDITY_SPIKE_SOL) {
                 console.log(`🚨 LIQUIDITY SPIKE DETECTED! +${liquidityIncrease.toFixed(1)} SOL (${initialLiquiditySol.toFixed(1)} → ${currentLiquidity.liquiditySol.toFixed(1)})`);
                 console.log(`🛡️ EMERGENCY SELL - Possible rug incoming!`);
                 clearInterval(intervalId);
                 executeAutoSellTransaction(mint, poolAddress, connection);
                 return;
+            }
+        }
+        
+        // 1.6 CHECK STALE CURVE (No upward movement = suspicious)
+        if (progress > 0) {
+            const curveChange = progress - lastCurveProgress; // Only positive movement counts
+            if (curveChange >= CONFIG.STALE_CURVE_THRESHOLD_PERCENT) {
+                lastCurveProgress = progress;
+                lastCurveChangeTime = Date.now();
+            } else {
+                const timeSinceChange = Date.now() - lastCurveChangeTime;
+                if (timeSinceChange >= CONFIG.STALE_CURVE_TIMEOUT_MS && !firstCheck) {
+                    console.log(`⚠️ STALE CURVE! No upward movement for ${(timeSinceChange/1000).toFixed(1)}s. Selling to be safe.`);
+                    clearInterval(intervalId);
+                    executeAutoSellTransaction(mint, poolAddress, connection);
+                    return;
+                }
             }
         }
         
@@ -469,14 +501,14 @@ function scheduleAutoSell(mint: string, poolAddress: string, connection: Connect
         }
 
         // 3. CHECK TIMEOUT
-        if (elapsed >= TIMING.TIMEOUT_MS) {
-             console.log(`⏰ Time's up (${TIMING.TIMEOUT_MS/1000}s)! Curve stuck at ${progress.toFixed(1)}%. Selling now.`);
+        if (elapsed >= CONFIG.TIMEOUT_MS) {
+             console.log(`⏰ Time's up (${CONFIG.TIMEOUT_MS/1000}s)! Curve stuck at ${progress.toFixed(1)}%. Selling now.`);
              clearInterval(intervalId); 
              executeAutoSellTransaction(mint, poolAddress, connection);
              return;
         }
         
-    }, TIMING.POLL_INTERVAL_MS);
+    }, CONFIG.POLL_INTERVAL_MS);
 }
 // Extracted Sell Logic for re-use
 async function executeAutoSellTransaction(mint: string, poolAddress: string, connection: Connection) {
@@ -764,8 +796,8 @@ async function checkPoolLiquidity(connection: Connection, poolAddress: string): 
         
         console.log(`💧 Pool Liquidity: ${liquiditySol.toFixed(2)} SOL ($${(liquiditySol * 130).toFixed(0)})`);
         
-        if (liquiditySol < MIN_POOL_LIQUIDITY_SOL) {
-            console.log(`🛑 LIQUIDITY TOO LOW! Required: ${MIN_POOL_LIQUIDITY_SOL} SOL, Found: ${liquiditySol.toFixed(2)} SOL`);
+        if (liquiditySol < CONFIG.MIN_POOL_LIQUIDITY_SOL) {
+            console.log(`🛑 LIQUIDITY TOO LOW! Required: ${CONFIG.MIN_POOL_LIQUIDITY_SOL} SOL, Found: ${liquiditySol.toFixed(2)} SOL`);
             return { isValid: false, liquiditySol };
         }
         
